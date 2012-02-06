@@ -87,18 +87,13 @@ def quad_chop(xr, yr, quad):
     yr_new = [(y1,y2), (y1,y2), (y2,y3), (y2,y3)][quad]
     return xr_new, yr_new
 
-def draw(canvas, block, quad, lit=None):
-    if block.children[quad] == 'outside':
-        return
-    xr,yr = quad_chop(block.xr, block.yr, quad)
-    if block.children[quad] == 'black':
+def draw(canvas, xr, yr, fill=None, bits=None):
+    if fill == 'black':
         canvas.create_rectangle(xr[0], yr[0], xr[1], yr[1],
                fill='black', outline='')
-        return
-    if block.types[quad] == 'leaf':
-        # blit the literal
+    if bits:
         points = product(range(xr[0], xr[1]), range(yr[0], yr[1]))
-        for xy,b in zip(points, lit):
+        for xy,b in zip(points, bits):
             if b:  # bug?  black should be 1
                 continue
             canvas.create_rectangle(xy[0], xy[1], xy[0], xy[1],
@@ -121,14 +116,15 @@ def walk(canvas, nodes):
         for q,child in enumerate(now.children):
             assert child is not None
             if now.types[q] == 'node':
-                try:
-                    stack.append(Block(nodes[child], now, q))
-                except IndexError:
-                    print 'block missing', child
+                stack.append(Block(nodes[child], now, q))
+                continue
+            if now.types[q] == 'outside':
+                continue
+            xr,yr = quad_chop(now.xr, now.yr, q)
             if now.types[q] == 'leaf':
-                draw(canvas, now, q, lit=nodes[child].literal)
+                draw(canvas, xr, yr, bits=nodes[child].bits)
             if now.types[q] == 'solid':
-                draw(canvas, now, q)
+                draw(canvas, xr, yr, fill=now.children[q])
 
 def main(path):
     nodes = load(path)
