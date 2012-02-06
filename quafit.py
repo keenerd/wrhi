@@ -39,7 +39,7 @@ class Node(object):
         self.ratio = lit[0]
         self.height = lit[0]
         self.types = [lit[1]//16, lit[1]%16, lit[2]//16, lit[2]%16]
-        self.pointer = lit[3]*2**24 + lit[4]*2**16 + lit[5]*2**8 + lit[6]
+        self.pointer = (lit[3]<<24) + (lit[4]<<16) + (lit[5]<<8) + lit[6]
         self.x_clip = lit[7] // 16
         self.y_clip = lit[7] % 16
 
@@ -85,16 +85,18 @@ def draw(canvas, block, quad):
         return
     if block.children[quad] == 'black':
         xr,yr = quad_chop(block.xr, block.yr, quad)
-        canvas.create_rectangle(xr[0], yr[0], xr[1], yr[1], fill='black')
+        canvas.create_rectangle(xr[0], yr[0], xr[1], yr[1],
+               fill='black', outline='')
         return
     if block.height == 3 and quad == 0:  # no need to draw four times
         # blit the literal
         xr,yr = block.xr, block.yr
         points = product(range(xr[0], xr[0]+8), range(yr[0], yr[0]+8))
         for xy,b in zip(points, block.node.bits):
-            if not b:
+            if b:  # bug?  black should be 1
                 continue
-            canvas.create_rectangle(xy[0], xy[1], xy[0], xy[1], fill='black')
+            canvas.create_rectangle(xy[0], xy[1], xy[0], xy[1],
+                   fill='black', outline='')
 
 def load(path):
     nodes = []
@@ -106,14 +108,14 @@ def load(path):
     print len(nodes)
     return nodes
 
-def walk(canvas, ns):
-    stack = [Block(ns[2])]
+def walk(canvas, nodes):
+    stack = [Block(nodes[2])]
     while stack:
         now = stack.pop(0)
         for q,child in enumerate(now.children):
             if type(child) in (int, long):
                 try:
-                    stack.append(Block(ns[child], now, q))
+                    stack.append(Block(nodes[child], now, q))
                 except IndexError:
                     print 'block missing', child
             draw(canvas, now, q)

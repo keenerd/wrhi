@@ -16,35 +16,6 @@ Specifically for the Wikireader
 Tree should be heap-ish, for easy parsing
 Nodes should have color ratio, for future easy dithering
 
-Node format:
-    color ratio (root has node size instead) (16 bit)
-    is leaf?  (1 bit) pointer (31 bit)
-    is leaf?  (1 bit) pointer (31 bit)
-    is leaf?  (1 bit) pointer (31 bit)
-    is leaf?  (1 bit) pointer (31 bit)
-
-Leaf format:
-    12x12 1 bit block (144 bits)
-
-pointers are always positive
-if leaf and node are same size, scale pointer
-design format with relative scaled pointers in mind
-pointer 0x0000 is out-of-bounding-box child
-pointer 0xFFFF is solid black child
-pointer 0xFFFE is solid white child
-
-Node:
-    ratio/height (4 bit)
-    is leaf? (1 bit) pointer (14 bit)
-    is leaf? (1 bit) pointer (14 bit)
-    is leaf? (1 bit) pointer (14 bit)
-    is leaf? (1 bit) pointer (14 bit)
-    (note that max leap is 16k blocks)
-
-Leaf:
-    8x8 1 bit block (64 bits)
-
-14 bit pointers are just not enough
 since the tree is BF, all quads are sequential
 only store pointer to quad[0]!
 
@@ -80,9 +51,9 @@ class Node(object):
         for x,y in product(range(*xr), range(*yr)):
             try:
                 if pix[x,y]:
-                    b += 1
-                else:
                     w += 1
+                else:
+                    b += 1
             except IndexError:
                 pass
         self.size = int_log2(max(xr[1]-xr[0], yr[1]-yr[0]))
@@ -104,8 +75,8 @@ class Node(object):
         t1 = block_type(blocks, self.children[1])
         t2 = block_type(blocks, self.children[2])
         t3 = block_type(blocks, self.children[3])
-        binary.append(t0*16 + t1)
-        binary.append(t2*16 + t3)
+        binary.append((t0<<4) + t1)
+        binary.append((t2<<4) + t3)
         # +2 offset for header bytes
         try:
             pointer = min(c for c in self.children if type(c) == int) + 2
@@ -133,7 +104,7 @@ def bitwise(n, bits):
     for sub in range(0, bits, 8):
         out = 0
         for i in list(reversed(range(bits)))[sub:sub+8]:
-            j = 2**i
+            j = 1<<i
             out *= 2
             if n >= j:
                 n -= j
@@ -155,14 +126,14 @@ def print_bin(blocks, block):
     return binary
 
 def int_log2(n):
-    return [i for i in range(16) if 2**i >= n][0]
+    return [i for i in range(16) if (1<<i) >= n][0]
 
 def chop_by_quad(node):
     x1 = node.xr[0]
-    x2 = x1 + 2**(node.size-1)
+    x2 = x1 + (1<<(node.size-1))
     x3 = node.xr[1]
     y1 = node.yr[0]
-    y2 = y1 + 2**(node.size-1)
+    y2 = y1 + (1<<(node.size-1))
     y3 = node.yr[1]
     return [Node(node.pix, (x1,x2), (y1,y2)),
             Node(node.pix, (x2,x3), (y1,y2)),
@@ -229,7 +200,7 @@ while todo:
 
 binary = []
 binary.extend(map(ord, '#!quafit\n'))
-binary.extend(map(ord, '#v0.00\n'))
+binary.extend(map(ord, '#v0000\n'))
 [binary.extend(print_bin(blocks, b)) for b in blocks]
 
 #print len(binary)
