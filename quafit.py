@@ -56,19 +56,26 @@ class Block(object):
             self.height = parent.height - 1
         # normally we'd check the bounding box before continuing
         self.children = [None, None, None, None]
-        if self.height >= 3:
-            self.find_children()
+        self.types    = [None, None, None, None]
+        assert self.height >= 3
+        self.find_children()
     def find_children(self):
         j = 0
         for i,t in enumerate(self.node.types):
             exists,leaf,bounds,color = fixed_bin(t, 4)
             if bounds:
                 self.children[i] = 'outside'
+                self.types[i] = 'outside'
                 continue
             if exists:
                 self.children[i] = self.node.pointer + j
                 j += 1
+                self.types[i] = 'node'
+            if leaf:
+                self.types[i] = 'leaf'
+            if exists:
                 continue
+            self.types[i] = 'solid'
             self.children[i] = ('white', 'black')[color]
 
 def quad_chop(xr, yr, quad): 
@@ -80,19 +87,18 @@ def quad_chop(xr, yr, quad):
     yr_new = [(y1,y2), (y1,y2), (y2,y3), (y2,y3)][quad]
     return xr_new, yr_new
 
-def draw(canvas, block, quad):
+def draw(canvas, block, quad, lit=None):
     if block.children[quad] == 'outside':
         return
+    xr,yr = quad_chop(block.xr, block.yr, quad)
     if block.children[quad] == 'black':
-        xr,yr = quad_chop(block.xr, block.yr, quad)
         canvas.create_rectangle(xr[0], yr[0], xr[1], yr[1],
                fill='black', outline='')
         return
-    if block.height == 3 and quad == 0:  # no need to draw four times
+    if block.types[quad] == 'leaf':
         # blit the literal
-        xr,yr = block.xr, block.yr
-        points = product(range(xr[0], xr[0]+8), range(yr[0], yr[0]+8))
-        for xy,b in zip(points, block.node.bits):
+        points = product(range(xr[0], xr[1]), range(yr[0], yr[1]))
+        for xy,b in zip(points, lit):
             if b:  # bug?  black should be 1
                 continue
             canvas.create_rectangle(xy[0], xy[1], xy[0], xy[1],
@@ -113,12 +119,16 @@ def walk(canvas, nodes):
     while stack:
         now = stack.pop(0)
         for q,child in enumerate(now.children):
-            if type(child) in (int, long):
+            assert child is not None
+            if now.types[q] == 'node':
                 try:
                     stack.append(Block(nodes[child], now, q))
                 except IndexError:
                     print 'block missing', child
-            draw(canvas, now, q)
+            if now.types[q] == 'leaf':
+                draw(canvas, now, q, lit=nodes[child].literal)
+            if now.types[q] == 'solid':
+                draw(canvas, now, q)
 
 def main(path):
     nodes = load(path)
