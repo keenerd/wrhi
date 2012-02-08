@@ -99,6 +99,53 @@ def draw(canvas, xr, yr, fill=None, bits=None):
             canvas.create_rectangle(xy[0], xy[1], xy[0], xy[1],
                    fill='black', outline='')
 
+error = 0
+def draw2(canvas, xr, yr, fill=None, bits=None):
+    "zoom 2:1, passable hack"
+    global error
+    if fill == 'black':
+        xr = xr[0]//2, xr[1]//2
+        yr = yr[0]//2, yr[1]//2
+        canvas.create_rectangle(xr[0], yr[0], xr[1], yr[1],
+               fill='black', outline='')
+    if bits:
+        points = list(product(range(xr[0], xr[1]), range(yr[0], yr[1])))
+        p2 = dict(zip(points, bits))
+        order = [1, 0, 4, 5, 9, 8, 12, 13, 14, 15, 11, 10, 6, 7, 3, 2]
+        subpoints = list(product(range(xr[0], xr[1], 2), range(yr[0], yr[1], 2)))
+        for x,y in [subpoints[i] for i in order]:
+            tally = p2[(x,y)] + p2[(x+1,y)] + p2[(x,y+1)] + p2[(x+1,y+1)]
+            b = (tally + error) >= 3
+            error -= (-tally, 4-tally)[b]
+            #b = tally >= 2
+            if b:
+                continue
+            canvas.create_rectangle(x//2, y//2, x//2, y//2,
+                   fill='black', outline='')
+
+def draw4(canvas, xr, yr, fill=None, bits=None):
+    "zoom 4:1, ugly"
+    global error
+    if fill == 'black':
+        xr = xr[0]//4, xr[1]//4
+        yr = yr[0]//4, yr[1]//4
+        canvas.create_rectangle(xr[0], yr[0], xr[1], yr[1],
+               fill='black', outline='')
+    if bits:
+        points = list(product(range(xr[0], xr[1]), range(yr[0], yr[1])))
+        p2 = dict(zip(points, bits))
+        order = [0, 1, 2, 3]
+        subpoints = list(product(range(xr[0], xr[1], 4), range(yr[0], yr[1], 4)))
+        for x,y in [subpoints[i] for i in order]:
+            tally = sum(p2[xy] for xy in product(range(x,x+4), range(y,y+4)))
+            b = (tally + error) >= 9
+            error -= (-tally, 16-tally)[b]
+            #b = tally >= 8
+            if b:
+                continue
+            canvas.create_rectangle(x//4, y//4, x//4, y//4,
+                   fill='black', outline='')
+
 def load(path):
     nodes = []
     string = open(path).read()
@@ -109,7 +156,7 @@ def load(path):
     print len(nodes)
     return nodes
 
-def walk(canvas, nodes):
+def walk(canvas, nodes, draw_fn):
     stack = [Block(nodes[2])]
     while stack:
         now = stack.pop(0)
@@ -122,9 +169,9 @@ def walk(canvas, nodes):
                 continue
             xr,yr = quad_chop(now.xr, now.yr, q)
             if now.types[q] == 'leaf':
-                draw(canvas, xr, yr, bits=nodes[child].bits)
+                draw_fn(canvas, xr, yr, bits=nodes[child].bits)
             if now.types[q] == 'solid':
-                draw(canvas, xr, yr, fill=now.children[q])
+                draw_fn(canvas, xr, yr, fill=now.children[q])
 
 def main(path):
     nodes = load(path)
@@ -132,7 +179,9 @@ def main(path):
     canvas = tk.Canvas(root, bg='white')
     canvas.pack(expand=1, fill=tk.BOTH)
     canvas.tk_focusFollowsMouse()
-    walk(canvas, nodes)
+    #walk(canvas, nodes, draw)
+    #walk(canvas, nodes, draw2)
+    walk(canvas, nodes, draw4)
     root.mainloop()
 
 main('lena.wrhi')
