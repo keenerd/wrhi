@@ -3,6 +3,7 @@
 # pil on py3 is buggy, won't open png
 
 from PIL import Image
+from dither import recursive_dither
 from itertools import *
 
 # wikireader huge image distill
@@ -20,11 +21,14 @@ since the tree is BF, all quads are sequential
 only store pointer to quad[0]!
 
 Node:
-    ratio/height (8 bit)
+    height/dither (8 bit)
+        height only in root
+        dither only uses 4 bits, one per child
     type 0,1,2,3 (16 bit)
         exists, leaf, bounds, color
     child[0] pointer (32 bit)
-    null (8 bit)  # todo - store the edge crop here for not % 8 sizes
+    crop (8 bit)
+        only used in root, 2x3 bit
 
 Leaf:
     8x8 1 bit block (64 bits)
@@ -32,6 +36,10 @@ Leaf:
 Load tree DFS with a stack
 Discard branches that are outside viewport
 If you are clever, panning viewport is only new pixels on edge
+
+generating zoom{2,4,8} dynamically is dumb
+embed it somewhere
+make a stego-dither algo and embed it inside the picture
 
 """
 
@@ -66,11 +74,13 @@ class Node(object):
         if self.root:
             binary.append(self.size)
         else:
-            b = self.b_count
-            w = self.w_count
-            ratio = 256.0 * b / (b + w)
-            ratio = int(ratio + 0.5)
-            binary.append(ratio)
+            xm = sum(self.xr) // 2
+            ym = sum(self.yr) // 2
+            dither = bool(self.pix[self.xr[0], self.yr[0]])
+            dither = dither*2 + bool(self.pix[xm, self.yr[0]])
+            dither = dither*2 + bool(self.pix[xm, ym])
+            dither = dither*2 + bool(self.pix[self.xr[0], ym])
+            binary.append(dither)
         t0 = block_type(blocks, self.children[0])
         t1 = block_type(blocks, self.children[1])
         t2 = block_type(blocks, self.children[2])
@@ -154,7 +164,8 @@ def literal(node):
             pass
     return n
 
-img = Image.open('lena.png')
+#img = Image.open('lena.png')
+img = recursive_dither('lena-gray.png')
 pix = img.load()
 root_height = int_log2(max(img.size))
 #print root_height
