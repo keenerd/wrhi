@@ -252,7 +252,7 @@ void render (uint8_t* nodes)
             if (now.height == target_height)
                 {blit_dither(box2, raw[0]); continue;}
             if (now.branches[q] < 0)
-                {blit_leaf(box2, raw); continue;}
+                {blit_leaf(box2, &(nodes[-8*now.branches[q]])); continue;}
             if (now.branches[q] <= 2)
                 {continue;}
             todo[todo_t].address = now.branches[q];

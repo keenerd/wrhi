@@ -53,9 +53,6 @@ def combine32(bs):
     assert len(bs) == 4
     return (bs[0]<<24) + (bs[1]<<16) + (bs[2]<<8) + bs[3]
 
-def break4(b):
-    return map(bool, [b&8, b&4, b&2, b&1])
-
 def build_branches(zero, tb1, tb2):
     branches = [0,0,0,0]
     branches[0] = parse_type(tb1 // 16)
@@ -109,14 +106,9 @@ def blit_box(screen_map, xr, yr):
     #box(xr[0], yr[0], xr[1], yr[1])
 
 def blit_leaf(screen_map, xr, yr, zoom, raw):
-    # a bit messy to handle the 1/2/4 zooms
     # I don't think I meant to make this column major....
-    for x in range(8):
-        if x % zoom != 0:
-            continue
-        for y in range(8):
-            if y % zoom != 0:
-                continue
+    for x in range(0, 8, zoom):
+        for y in range(0, 8, zoom):
             p = bool(raw[x] & 2**(7-y))
             if p:
                 continue
@@ -142,9 +134,14 @@ def viewport(nodes, bbox, center, zoom):
     in_view = in_view_fn(bbox, center, zoom)
     screen_map = screen_map_fn(bbox, center, zoom)
     # set up the root
-    todo = [(2, None)]  # assert length < 1000
+    todo = [(2, None)]  # assert length < 80
     stack = []  # assert length < 20
+    # todo <= 4x stack
+    maxtodo = 0
+    maxstack = 0
     while todo:
+        maxtodo = max(maxtodo, len(todo))
+        maxstack = max(maxstack, len(stack))
         adr,quad = todo.pop(-1)  # DFS
         while stack and not branch_of(stack[-1], adr):
             stack.pop(-1)
@@ -162,7 +159,7 @@ def viewport(nodes, bbox, center, zoom):
             continue
         #print 'stack', len(stack), 'todo', len(todo)
         #print 'now', adr, height, xr, yr
-        #print branches
+        #print branches, '\n'
         interesting = False
         for q in range(4):
             xrq,yrq = quad_chop(xr, yr, q)
@@ -184,6 +181,7 @@ def viewport(nodes, bbox, center, zoom):
             struct = Struct(address=adr, height=height,
                             xr=xr, yr=yr, branches=branches)
             stack.append(struct)
+    print maxstack, maxtodo
 
 
 def main(path):
