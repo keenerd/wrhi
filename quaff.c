@@ -13,6 +13,20 @@
 #define STACKDEPTH 20
 #define IMAGECACHE 2000000
 
+/*
+quad tree with 8 bytes nodes/leaves
+
+Node:
+    height/dither (8 bit)
+    type 0,1,2,3 (16 bit)
+        exists, leaf, bounds, color
+    child[0] pointer (32 bit)
+    crop (2x3 bit)  # not implemented in this decoder
+
+Leaf:
+    8x8 1 bit block (64 bits)
+*/
+
 struct point
 {
     int x;
@@ -191,11 +205,11 @@ void blit_leaf (struct area leaf, uint8_t* raw)
     p = screen_map(leaf.xr.r1, leaf.yr.r1);
     // could this be replaced with write-byte-to-buffer?
     // would need to snap viewport to 8 and only helps zoom 1
-    for (x=0; x<8; x+=zoom) { for (y=0; y<8; y+=zoom)
+    for (x=0; x<8; x+=zoom) { for (y=0; y<8; y+=zoom) {
         if (raw[x] & (1<<(7-y)))
             {continue;}
         lcd_set_pixel(p.x + x/zoom, p.y + y/zoom, 1);
-    }
+    }}
 }
 
 void lcd_set_point (struct point p)
@@ -221,7 +235,7 @@ void blit_dither (struct area leaf, uint8_t raw)
 
 void render (uint8_t* nodes)
 {
-    int target_height = 3;  // figure out zooming later
+    int target_height = 3;
     struct todo_element todo[STACKDEPTH * 4];
     struct recursive_element stack[STACKDEPTH];
     struct recursive_element now;
@@ -230,6 +244,12 @@ void render (uint8_t* nodes)
     uint8_t* raw;
     int branch0;
     struct area box2;
+    if (zoom == 16)
+        {target_height = 4;}
+    if (zoom == 32)
+        {target_height = 5;}
+    if (zoom == 64)
+        {target_height = 6;}
     todo[0].address = 2;  // seed root
     todo_p = 1;
     while (todo_p > 0)
@@ -278,7 +298,10 @@ void render (uint8_t* nodes)
             interesting++;
         }
         if (interesting)
-            {stack_p++;}  // officially push this node to the stack
+        {
+            stack[stack_p] = now;
+            stack_p++;
+        }
     }
 }
 
