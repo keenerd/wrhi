@@ -81,7 +81,7 @@ int parse_type (uint8_t n)
         {return -1;}
     if (n & 8)
         {return -2;}
-    return ((n&1) + 1);
+    return ((n & 1) + 1);
 }
 
 int combine32 (uint8_t b0, uint8_t b1, uint8_t b2, uint8_t b3)
@@ -91,7 +91,7 @@ int combine32 (uint8_t b0, uint8_t b1, uint8_t b2, uint8_t b3)
            (((int)b2 & 0xFF)<<8)  +  ((int)b3 & 0xFF);
 }
 
-void build_branches (int* branches, int p_zero, uint8_t tb1, uint8_t tb2)
+void build_branches (int* branches, int zero_p, uint8_t tb1, uint8_t tb2)
 {
     int i;
     branches[0] = parse_type(tb1 / 16);
@@ -101,13 +101,11 @@ void build_branches (int* branches, int p_zero, uint8_t tb1, uint8_t tb2)
     for (i=0; i<4; i++)
     {
         if (branches[i] == -2)
-            {branches[i] = p_zero; p_zero++;}
+            {branches[i] =  zero_p; zero_p++;}
         if (branches[i] == -1)
-            {branches[i] = -p_zero; p_zero++;}
+            {branches[i] = -zero_p; zero_p++;}
     }
 }
-
-// 136 136
 
 int overlap (struct range a, struct range b)
 {
@@ -130,7 +128,7 @@ void refresh_viewport ()
 
 int in_view (struct range xr, struct range yr)
 {
-    return overlap(viewport.xr, xr) && overlap(viewport.yr, yr);
+    return (overlap(viewport.xr, xr) && overlap(viewport.yr, yr));
 }
 
 struct point screen_map (int xq, int yq)
@@ -192,6 +190,7 @@ void blit_leaf (struct area leaf, uint8_t* raw)
     int x, y;
     p = screen_map(leaf.xr.r1, leaf.yr.r1);
     // could this be replaced with write-byte-to-buffer?
+    // would need to snap viewport to 8 and only helps zoom 1
     for (x=0; x<8; x+=zoom) { for (y=0; y<8; y+=zoom)
         if (raw[x] & (1<<(7-y)))
             {continue;}
@@ -199,7 +198,7 @@ void blit_leaf (struct area leaf, uint8_t* raw)
     }
 }
 
-void lcd_set_point(struct point p)
+void lcd_set_point (struct point p)
 // convenient wrapper because this gets annoying
 // could probably macro this
 {
@@ -226,18 +225,19 @@ void render (uint8_t* nodes)
     struct todo_element todo[STACKDEPTH * 4];
     struct recursive_element stack[STACKDEPTH];
     struct recursive_element now;
-    int todo_h=0, todo_t=1, stack_p=0;
+    int todo_p=0, stack_p=0;
     int addr, quad, interesting, q;
     uint8_t* raw;
     int branch0;
     struct area box2;
-    todo[0].address = 2;
-    while (todo_h != todo_t)
+    todo[0].address = 2;  // seed root
+    todo_p = 1;
+    while (todo_p > 0)
     {
-        //lcd_printf("%i %i\n", stack_p, (todo_t-todo_h)%80);
-        addr = todo[todo_h].address;
-        quad = todo[todo_h].quad;
-        todo_h = (todo_h + 1) % (STACKDEPTH * 4);
+        //lcd_printf("%i %i\n", stack_p, todo_p);
+        addr = todo[(todo_p - 1)].address;
+        quad = todo[(todo_p - 1)].quad;
+        todo_p--;
         while (stack_p > 0 && ! branch_of(stack[stack_p-1], addr))
             {stack_p--;}
         now = stack[stack_p];
@@ -257,7 +257,7 @@ void render (uint8_t* nodes)
             now.box.xr.r1 = 0; now.box.xr.r2 = 1<<now.height;
             now.box.yr.r1 = 0; now.box.yr.r2 = 1<<now.height;
         }
-        // ignore, render or recurse the node
+        // ignore, render or recurse the node & branches
         if (! in_view(now.box.xr, now.box.yr))
             {continue;}
         interesting = 0;
@@ -272,9 +272,9 @@ void render (uint8_t* nodes)
                 {blit_leaf(box2, &(nodes[-8*now.branches[q]])); continue;}
             if (now.branches[q] <= 2)
                 {continue;}
-            todo[todo_t].address = now.branches[q];
-            todo[todo_t].quad = q;
-            todo_t = (todo_t + 1) % (STACKDEPTH * 4);
+            todo[todo_p].address = now.branches[q];
+            todo[todo_p].quad = q;
+            todo_p++;
             interesting++;
         }
         if (interesting)

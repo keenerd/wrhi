@@ -26,12 +26,10 @@ def box(x1, y1, x2, y2):
     canvas.create_rectangle(x1,y1,x2,y2, fill='black', outline='')
 
 def load(path):
-    "returns a list of 8x8 bit ints"
+    "returns a list of 8 bit ints"
     nodes = []
     string = open(path).read()
-    for i in range(0, len(string), 8):
-        nodes.append(map(ord, string[i:i+8]))
-    return nodes
+    return map(ord, string)
 
 class Struct(object):
     def __init__(self, **kwargs):
@@ -49,23 +47,22 @@ def parse_type(nibble):
         return -2
     return (n & 1) + 1
 
-def combine32(bs):
-    assert len(bs) == 4
-    return (bs[0]<<24) + (bs[1]<<16) + (bs[2]<<8) + bs[3]
+def combine32(b0, b1, b2, b3):
+    return (b0<<24) + (b1<<16) + (b2<<8) + b3
 
-def build_branches(zero, tb1, tb2):
+def build_branches(zero_p, tb1, tb2):
     branches = [0,0,0,0]
     branches[0] = parse_type(tb1 // 16)
     branches[1] = parse_type(tb1 % 16)
     branches[2] = parse_type(tb2 // 16)
     branches[3] = parse_type(tb2 % 16)
     for i in range(4):
-        if branches[i] == -1:
-            branches[i] = -zero
-            zero += 1
         if branches[i] == -2:
-            branches[i] = zero
-            zero += 1
+            branches[i] = zero_p
+            zero_p += 1
+        if branches[i] == -1:
+            branches[i] = -zero_p
+            zero_p += 1
     return branches
 
 def overlap(rangeA, rangeB):
@@ -103,18 +100,15 @@ def blit_box(screen_map, xr, yr):
     xy0 = screen_map(xr[0], yr[0])
     xy1 = screen_map(xr[1], yr[1])
     box(*(xy0 + xy1))
-    #box(xr[0], yr[0], xr[1], yr[1])
 
 def blit_leaf(screen_map, xr, yr, zoom, raw):
     # I don't think I meant to make this column major....
+    x2,y2 = screen_map(xr[0], yr[0])
     for x in range(0, 8, zoom):
         for y in range(0, 8, zoom):
-            p = bool(raw[x] & 2**(7-y))
-            if p:
+            if raw[x] & 2**(7-y):
                 continue
-            x2,y2 = screen_map(xr[0], yr[0])
             pixel(x2+x//zoom, y2+y//zoom)
-            #pixel(xr[0] + x, yr[0] + y)
 
 def blit_dither(screen_map, xr, yr, raw):
     xm = sum(xr)//2
@@ -128,37 +122,37 @@ def blit_dither(screen_map, xr, yr, raw):
     if raw & 1:
         pixel(*screen_map(xr[0], ym))
 
-def viewport(nodes, bbox, center, zoom):
+def render(nodes, bbox, center, zoom):
     "simple one shot renderer"
     target_height = {1:3, 2:3, 4:3, 8:3, 16:4, 32:5, 64:6}[zoom]
     in_view = in_view_fn(bbox, center, zoom)
     screen_map = screen_map_fn(bbox, center, zoom)
     # set up the root
-    todo = [(2, None)]  # assert length < 80
-    stack = []  # assert length < 20
-    # todo <= 4x stack
-    maxtodo = 0
-    maxstack = 0
-    while todo:
-        maxtodo = max(maxtodo, len(todo))
-        maxstack = max(maxstack, len(stack))
-        adr,quad = todo.pop(-1)  # DFS
-        while stack and not branch_of(stack[-1], adr):
-            stack.pop(-1)
-        raw = nodes[adr]
+    todo = [None] * 80
+    stack = [None] * 20
+    # len(todo) <= 4 * len(stack), len(stack) <= tree height
+    todo[0] = (2, None)
+    todo_p = 1
+    stack_p = 0
+    while todo_p > 0:
+        addr,quad = todo[todo_p - 1]  # DFS
+        todo_p -= 1
+        while stack_p > 0 and not branch_of(stack[stack_p-1], addr):
+            stack_p -= 1
+        raw = nodes[8*addr:]
         # unpack data and store in struct on stack
-        branch0 = combine32(raw[3:7])
+        branch0 = combine32(raw[3], raw[4], raw[5], raw[6])
         branches = build_branches(branch0, raw[1], raw[2])
-        if stack:
-            height = stack[-1].height - 1
-            xr, yr = quad_chop(stack[-1].xr, stack[-1].yr, quad)
+        if stack_p > 0:
+            height = stack[stack_p-1].height - 1
+            xr, yr = quad_chop(stack[stack_p-1].xr, stack[stack_p-1].yr, quad)
         else:
             height = raw[0]
             xr,yr = (0, 2**height), (0, 2**height)
         if not in_view(xr, yr):
             continue
         #print 'stack', len(stack), 'todo', len(todo)
-        #print 'now', adr, height, xr, yr
+        #print 'now', addr, height, xr, yr
         #print branches, '\n'
         interesting = False
         for q in range(4):
@@ -170,18 +164,19 @@ def viewport(nodes, bbox, center, zoom):
                 blit_dither(screen_map, xrq, yrq, raw[0]) 
                 continue
             if branches[q] < 0:
-                blit_leaf(screen_map, xrq, yrq, zoom, nodes[-branches[q]]) 
+                blit_leaf(screen_map, xrq, yrq, zoom, nodes[-8*branches[q]:]) 
                 continue
             if branches[q] <= 2:
                 # not recursable
                 continue
-            todo.append((branches[q], q))
+            todo[todo_p] = (branches[q], q)
+            todo_p += 1
             interesting = True
         if interesting:
-            struct = Struct(address=adr, height=height,
+            struct = Struct(address=addr, height=height,
                             xr=xr, yr=yr, branches=branches)
-            stack.append(struct)
-    print maxstack, maxtodo
+            stack[stack_p] = struct
+            stack_p += 1
 
 
 def main(path):
@@ -193,10 +188,13 @@ def main(path):
     canvas.tk_focusFollowsMouse()
     center = random.randint(0,500), random.randint(0,500)
     zoom = random.choice((1,1,1,1,2,2,4,8,16,32))
-    #center = (256, 256)
-    #zoom = 4
+    center = (256, 256)
+    zoom = 1
     print center, zoom
-    viewport(nodes, (240,208), center, zoom)
+    try:
+        render(nodes, (240,208), center, zoom)
+    except KeyboardInterrupt:
+        pass
     root.mainloop()
 
 main('lena.wrhi')
