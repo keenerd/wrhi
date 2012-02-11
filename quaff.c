@@ -1,9 +1,14 @@
 // QUAd Fractal Format
 // for viewing WikiReader Huge Images
 
-#include <grifo.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <inttypes.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
+
+#include <grifo.h>
 
 #define STACKDEPTH 20
 #define IMAGECACHE 2000000
@@ -54,8 +59,16 @@ int zoom;
 struct point center;
 struct area viewport;
 
-void load_wrhi ()
+void blinker()
+// debugging tool :-(
 {
+    for (;;)
+    {
+        delay_us(500000);
+        lcd_set_pixel(100, 100, 1);
+        delay_us(500000);
+        lcd_set_pixel(100, 100, 0);
+    }
 }
 
 int parse_type (uint8_t n)
@@ -71,12 +84,14 @@ int parse_type (uint8_t n)
     return ((n&1) + 1);
 }
 
-long combine32 (uint8_t b0, uint8_t b1, uint8_t b2, uint8_t b3)
+int combine32 (uint8_t b0, uint8_t b1, uint8_t b2, uint8_t b3)
+// sign error on 16GB images with 2 billion nodes
 {
-    return (((long)b0)<<24) + (((long)b1)<<16) + (((long)b2)<<8) + (long)b0;
+    return (((int)b0 & 0xFF)<<24) + (((int)b1 & 0xFF)<<16) +
+           (((int)b2 & 0xFF)<<8)  +  ((int)b3 & 0xFF);
 }
 
-void build_branches (int* branches, long zero, uint8_t tb1, uint8_t tb2)
+void build_branches (int* branches, int p_zero, uint8_t tb1, uint8_t tb2)
 {
     int i;
     branches[0] = parse_type(tb1 / 16);
@@ -85,21 +100,21 @@ void build_branches (int* branches, long zero, uint8_t tb1, uint8_t tb2)
     branches[3] = parse_type(tb2 % 16);
     for (i=0; i<4; i++)
     {
-        if (branches[i] == -1)
-            {branches[i] = -zero;}
         if (branches[i] == -2)
-            {branches[i] = zero;}
-        if (branches[i] < 0)
-            {zero++;}
+            {branches[i] = p_zero; p_zero++;}
+        if (branches[i] == -1)
+            {branches[i] = -p_zero; p_zero++;}
     }
 }
+
+// 136 136
 
 int overlap (struct range a, struct range b)
 {
     if (a.r1 < b.r1)
         {return (a.r2 > b.r1);}
     else
-        {return (b.r1 > a.r1);}
+        {return (b.r2 > a.r1);}
 }
 
 void refresh_viewport ()
@@ -108,9 +123,9 @@ void refresh_viewport ()
 // or once per frame
 {
     viewport.xr.r1 = center.x - LCD_WIDTH  * zoom / 2;
-    viewport.xr.r2 = center.x - LCD_WIDTH  * zoom / 2;
+    viewport.xr.r2 = center.x + LCD_WIDTH  * zoom / 2;
     viewport.yr.r1 = center.y - LCD_HEIGHT * zoom / 2;
-    viewport.yr.r2 = center.y - LCD_HEIGHT * zoom / 2;
+    viewport.yr.r2 = center.y + LCD_HEIGHT * zoom / 2;
 }
 
 int in_view (struct range xr, struct range yr)
@@ -176,6 +191,7 @@ void blit_leaf (struct area leaf, uint8_t* raw)
     struct point p;
     int x, y;
     p = screen_map(leaf.xr.r1, leaf.yr.r1);
+    // could this be replaced with write-byte-to-buffer?
     for (x=0; x<8; x+=zoom) { for (y=0; y<8; y+=zoom)
         if (raw[x] & (1<<(7-y)))
             {continue;}
@@ -213,11 +229,12 @@ void render (uint8_t* nodes)
     int todo_h=0, todo_t=1, stack_p=0;
     int addr, quad, interesting, q;
     uint8_t* raw;
-    long branch0;
+    int branch0;
     struct area box2;
     todo[0].address = 2;
     while (todo_h != todo_t)
     {
+        //lcd_printf("%i %i\n", stack_p, (todo_t-todo_h)%80);
         addr = todo[todo_h].address;
         quad = todo[todo_h].quad;
         todo_h = (todo_h + 1) % (STACKDEPTH * 4);
@@ -265,29 +282,39 @@ void render (uint8_t* nodes)
     }
 }
 
+void load_wrhi (char* path, char* nodes)
+// put entire thing in ram, max IMAGECACHE
+// this only does 8.3 filenames
+{
+    int fd, fs, fp;
+    fd = file_open(path, FILE_OPEN_READ);
+    // check fd >= 0 ?
+    fs = file_read(fd, nodes, 512);
+    fp = fs;
+    while (fs > 0)
+    {
+        fs = file_read(fd, &nodes[fp], 512);
+        fp += fs;
+    }
+    file_close(fd);
+}
+
 void run ()
 {
-    int fd;
     uint8_t nodes[IMAGECACHE];
+    lcd_clear(0);
     // initialize globals
     zoom = 1;
     center.x = 256; center.y = 256;
     refresh_viewport();
-    // load file to memory
-    fd = file_open("lena.wrhi", FILE_OPEN_READ);
-    // check fd >= 0
-    file_read(fd, nodes, IMAGECACHE);
-    file_close(fd);
-    // hope it can slurp the whole thing at once
-    lcd_clear(0);
+    load_wrhi("lena.wri", nodes);
     render(nodes);
+    blinker();
     for (;;)
     {
         // page flipping?
         // wait for input
         delay_us(1000000);
-        //lcd_clear(1);
-        //delay_us(300000);
     }
 }
 
