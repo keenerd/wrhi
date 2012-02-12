@@ -25,6 +25,9 @@ Leaf:
 // turns out every struct call does a full copy
 // use pointers instead
 // lcd_set_point() being a pain
+// biggest slowdown is single pixel writes
+// figure out byte writes
+// figure out memcpy based panning
 
 struct point
 {
@@ -60,7 +63,7 @@ struct recursive_element
 
 static void run (void);
 
-// main() must be first?  check this
+// main() must be first, otherwise it boots to wiki app
 int main (void)
 {
     run();
@@ -71,6 +74,25 @@ int main (void)
 int zoom;
 struct point center;
 struct area viewport;
+uint8_t* fb1;
+uint8_t* fb2;
+
+void clear_framebuffer()
+{
+    int i;
+    for (i=0; i < LCD_BUFFER_SIZE_BYTES; i++)
+        {fb1[i] = '\0';}
+}
+
+void pixel_framebuffer(int x, int y)
+// just as slow as the stock lcd_set_pixel
+{
+    int i;
+    i = y * LCD_BUFFER_WIDTH_BYTES + x/8;
+    if (i >= LCD_BUFFER_SIZE_BYTES)
+        {return;}  // should not be needed, but seems to happen...
+    fb1[i] |= 1 << (7 - (x % 8));
+}
 
 int parse_type (uint8_t n)
 // returns 0:outside, 1:white, 2:black, -1:leaf, -2:node
@@ -180,7 +202,7 @@ void blit_box (struct area* leaf)
     x2 = p.x;
     y2 = p.y;
     for (x=x1; x<x2; x++) { for (y=y1; y<y2; y++)
-        {lcd_set_pixel(x, y, 1);}
+        {pixel_framebuffer(x, y);}
     }
 }
 
@@ -195,7 +217,7 @@ void blit_leaf (struct area* leaf, uint8_t* raw)
     for (x=0; x<8; x+=zoom) { for (y=0; y<8; y+=zoom) {
         if (raw[x] & (1<<(7-y)))
             {continue;}
-        lcd_set_pixel(p.x + x/zoom, p.y + y/zoom, 1);
+        pixel_framebuffer(p.x + x/zoom, p.y + y/zoom);
     }}
 }
 
@@ -203,22 +225,19 @@ void lcd_set_point (struct point p)
 // convenient wrapper because this gets annoying
 // could probably macro this
 {
-    lcd_set_pixel(p.x, p.y, 1);
+    pixel_framebuffer(p.x, p.y);
 }
 
 void blit_dither (struct area* leaf, uint8_t raw)
-// this seems generally buggy
 {
-    int xm = (leaf->xr.r1 + leaf->xr.r2) / 2;
-    int ym = (leaf->yr.r1 + leaf->yr.r2) / 2;
     if (! raw & 8)
         {lcd_set_point(screen_map(leaf->xr.r1, leaf->yr.r1));}
     if (! raw & 4)
-        {lcd_set_point(screen_map(xm, leaf->yr.r1));}
+        {lcd_set_point(screen_map(leaf->xr.r1+1, leaf->yr.r1));}
     if (! raw & 2)
-        {lcd_set_point(screen_map(xm, ym));}
+        {lcd_set_point(screen_map(leaf->xr.r1+1, leaf->yr.r1+1));}
     if (! raw & 1)
-        {lcd_set_point(screen_map(leaf->xr.r1, ym));}
+        {lcd_set_point(screen_map(leaf->xr.r1, leaf->yr.r1+1));}
 }
 
 void render (uint8_t* nodes)
@@ -242,7 +261,6 @@ void render (uint8_t* nodes)
     todo_p = 1;
     while (todo_p > 0)
     {
-        //lcd_printf("%i %i\n", stack_p, todo_p);
         addr = todo[(todo_p - 1)].address;
         quad = todo[(todo_p - 1)].quad;
         todo_p--;
@@ -317,32 +335,40 @@ int handle_input()
     int button = -1, active = 0, x_delta = 0, y_delta = 0;
     static int x_prev, y_prev;
 
-    switch (event_get(&event))
+    do
     {
-        case EVENT_BUTTON_DOWN:
-            button = event.button.code;
-            //lcd_printf("%i\n", event.button.code);
-            break;
+        switch (event_get(&event))
+        {
+            case EVENT_BUTTON_DOWN:
+                //lcd_printf("%i\n", event.button.code);
+                button = event.button.code;
+                active = 1;
+                break;
 
-        case EVENT_BUTTON_UP:
-            break;
+            case EVENT_BUTTON_UP:
+                break;
 
-	case EVENT_TOUCH_DOWN:
-            x_prev = event.touch.x;
-            y_prev = event.touch.y;
-            break;
+            case EVENT_TOUCH_DOWN:
+                x_prev = event.touch.x;
+                y_prev = event.touch.y;
+                break;
 
-        case EVENT_TOUCH_MOTION:
-            //lcd_printf("%i %i\n", event.touch.x, event.touch.y);
-            x_delta = event.touch.x - x_prev;
-            y_delta = event.touch.y - y_prev;
-            x_prev = event.touch.x;
-            y_prev = event.touch.y;
-            break;
+            case EVENT_TOUCH_MOTION:
+                //lcd_printf("%i %i\n", event.touch.x, event.touch.y);
+                x_delta += event.touch.x - x_prev;
+                y_delta += event.touch.y - y_prev;
+                x_prev = event.touch.x;
+                y_prev = event.touch.y;
+                active = 1;
+                break;
 
-        default:
-            break;
-    }
+            default:
+                break;
+        }
+        event_flush();
+        delay_us(10000);  // cheap debounce	
+    } while (event.item_type != EVENT_NONE);
+
     event_flush();
 
     if (button == 1)  // search
@@ -350,13 +376,11 @@ int handle_input()
         zoom = zoom * 2;
         if (zoom > 64)
             {zoom = 64;}
-        active = 1;
     }
 
     if (button == 2)  // history
     {
         // todo, jump to next file
-        active = 1;
     }
 
     if (button == 0)  // random
@@ -364,39 +388,52 @@ int handle_input()
         zoom = zoom / 2;
         if (zoom < 1)
             {zoom = 1;}
-        active = 1;
     }
 
     if (x_delta || y_delta)  // motion
     {
         center.x -= x_delta * zoom;
         center.y -= y_delta * zoom;
-        active = 1;
     }
 
     return active;
 }
 
+void flip()
+{
+    uint8_t* tmp;
+    tmp = fb2;
+    fb2 = fb1;
+    fb1 = tmp;
+    lcd_set_framebuffer((uint32_t*)fb2);
+}
+
 void run ()
 {
     uint8_t nodes[IMAGECACHE];
-    lcd_clear(0);
+    uint8_t fb1_post[LCD_BUFFER_SIZE_BYTES];
+    uint8_t fb2_post[LCD_BUFFER_SIZE_BYTES];
     // initialize globals
     zoom = 1;
     center.x = 256; center.y = 256;
+    fb1 = fb1_post;
+    fb2 = fb2_post;
     refresh_viewport();
+    clear_framebuffer();
+    flip();
+    clear_framebuffer();
     load_wrhi("lena.wri", nodes);
     render(nodes);
+    flip();
     for (;;)
     {
-        // page flipping?
-        // wait for input
         delay_us(100000);
-        if (handle_input())
+        while (handle_input())
         {
             refresh_viewport();
-            lcd_clear(0);
+            clear_framebuffer();
             render(nodes);
+            flip();
         }
     }
 }
