@@ -22,6 +22,10 @@ Leaf:
     8x8 1 bit block (64 bits)
 */
 
+// turns out every struct call does a full copy
+// use pointers instead
+// lcd_set_point() being a pain
+
 struct point
 {
     int x;
@@ -68,18 +72,6 @@ int zoom;
 struct point center;
 struct area viewport;
 
-void blinker()
-// debugging tool :-(
-{
-    for (;;)
-    {
-        delay_us(500000);
-        lcd_set_pixel(100, 100, 1);
-        delay_us(500000);
-        lcd_set_pixel(100, 100, 0);
-    }
-}
-
 int parse_type (uint8_t n)
 // returns 0:outside, 1:white, 2:black, -1:leaf, -2:node
 {
@@ -116,12 +108,12 @@ void build_branches (int* branches, int zero_p, uint8_t tb1, uint8_t tb2)
     }
 }
 
-int overlap (struct range a, struct range b)
+int overlap (struct range* a, struct range* b)
 {
-    if (a.r1 < b.r1)
-        {return (a.r2 > b.r1);}
+    if (a->r1 < b->r1)
+        {return (a->r2 > b->r1);}
     else
-        {return (b.r2 > a.r1);}
+        {return (b->r2 > a->r1);}
 }
 
 void refresh_viewport ()
@@ -135,9 +127,9 @@ void refresh_viewport ()
     viewport.yr.r2 = center.y + LCD_HEIGHT * zoom / 2;
 }
 
-int in_view (struct range xr, struct range yr)
+int in_view (struct range* xr, struct range* yr)
 {
-    return (overlap(viewport.xr, xr) && overlap(viewport.yr, yr));
+    return (overlap(&viewport.xr, xr) && overlap(&viewport.yr, yr));
 }
 
 struct point screen_map (int xq, int yq)
@@ -150,41 +142,41 @@ struct point screen_map (int xq, int yq)
     return s_pixel;
 }
 
-struct area quad_chop (struct area a, int quad)
+struct area quad_chop (struct area* a, int quad)
 {
-    int xm = (a.xr.r1 + a.xr.r2) / 2;
-    int ym = (a.yr.r1 + a.yr.r2) / 2;
+    int xm = (a->xr.r1 + a->xr.r2) / 2;
+    int ym = (a->yr.r1 + a->yr.r2) / 2;
     struct area b;
     if (quad == 0)
-        {b.xr.r1 = a.xr.r1; b.xr.r2 = xm; b.yr.r1 = a.yr.r1; b.yr.r2 = ym;}
+        {b.xr.r1 = a->xr.r1; b.xr.r2 = xm; b.yr.r1 = a->yr.r1; b.yr.r2 = ym;}
     if (quad == 1)
-        {b.xr.r1 = xm; b.xr.r2 = a.xr.r2; b.yr.r1 = a.yr.r1; b.yr.r2 = ym;}
+        {b.xr.r1 = xm; b.xr.r2 = a->xr.r2; b.yr.r1 = a->yr.r1; b.yr.r2 = ym;}
     if (quad == 2)
-        {b.xr.r1 = xm; b.xr.r2 = a.xr.r2; b.yr.r1 = ym; b.yr.r2 = a.yr.r2;}
+        {b.xr.r1 = xm; b.xr.r2 = a->xr.r2; b.yr.r1 = ym; b.yr.r2 = a->yr.r2;}
     if (quad == 3)
-        {b.xr.r1 = a.xr.r1; b.xr.r2 = xm; b.yr.r1 = ym; b.yr.r2 = a.yr.r2;}
+        {b.xr.r1 = a->xr.r1; b.xr.r2 = xm; b.yr.r1 = ym; b.yr.r2 = a->yr.r2;}
     return b;
 }
 
-int branch_of (struct recursive_element parent, int address)
+int branch_of (struct recursive_element* parent, int address)
 {
     int i;
     for (i=0; i<4; i++)
     {
-        if (abs(parent.branches[i]) == address)
+        if (abs(parent->branches[i]) == address)
             {return 1;}
     }
     return 0;
 }
 
-void blit_box (struct area leaf)
+void blit_box (struct area* leaf)
 {
     int x, y, x1, x2, y1, y2;
     struct point p;
-    p = screen_map(leaf.xr.r1, leaf.yr.r1);
+    p = screen_map(leaf->xr.r1, leaf->yr.r1);
     x1 = p.x;
     y1 = p.y;
-    p = screen_map(leaf.xr.r2, leaf.yr.r2);
+    p = screen_map(leaf->xr.r2, leaf->yr.r2);
     x2 = p.x;
     y2 = p.y;
     for (x=x1; x<x2; x++) { for (y=y1; y<y2; y++)
@@ -192,12 +184,12 @@ void blit_box (struct area leaf)
     }
 }
 
-void blit_leaf (struct area leaf, uint8_t* raw)
+void blit_leaf (struct area* leaf, uint8_t* raw)
 // raw should be 8 characters long
 {
     struct point p;
     int x, y;
-    p = screen_map(leaf.xr.r1, leaf.yr.r1);
+    p = screen_map(leaf->xr.r1, leaf->yr.r1);
     // could this be replaced with write-byte-to-buffer?
     // would need to snap viewport to 8 and only helps zoom 1
     for (x=0; x<8; x+=zoom) { for (y=0; y<8; y+=zoom) {
@@ -214,19 +206,19 @@ void lcd_set_point (struct point p)
     lcd_set_pixel(p.x, p.y, 1);
 }
 
-void blit_dither (struct area leaf, uint8_t raw)
+void blit_dither (struct area* leaf, uint8_t raw)
 // this seems generally buggy
 {
-    int xm = (leaf.xr.r1 + leaf.xr.r2) / 2;
-    int ym = (leaf.yr.r1 + leaf.yr.r2) / 2;
+    int xm = (leaf->xr.r1 + leaf->xr.r2) / 2;
+    int ym = (leaf->yr.r1 + leaf->yr.r2) / 2;
     if (! raw & 8)
-        {lcd_set_point(screen_map(leaf.xr.r1, leaf.yr.r1));}
+        {lcd_set_point(screen_map(leaf->xr.r1, leaf->yr.r1));}
     if (! raw & 4)
-        {lcd_set_point(screen_map(xm, leaf.yr.r1));}
+        {lcd_set_point(screen_map(xm, leaf->yr.r1));}
     if (! raw & 2)
         {lcd_set_point(screen_map(xm, ym));}
     if (! raw & 1)
-        {lcd_set_point(screen_map(leaf.xr.r1, ym));}
+        {lcd_set_point(screen_map(leaf->xr.r1, ym));}
 }
 
 void render (uint8_t* nodes)
@@ -254,7 +246,7 @@ void render (uint8_t* nodes)
         addr = todo[(todo_p - 1)].address;
         quad = todo[(todo_p - 1)].quad;
         todo_p--;
-        while (stack_p > 0 && ! branch_of(stack[stack_p-1], addr))
+        while (stack_p > 0 && ! branch_of(&stack[stack_p-1], addr))
             {stack_p--;}
         now = stack[stack_p];
         now.address = addr;
@@ -265,7 +257,7 @@ void render (uint8_t* nodes)
         if (stack_p > 0)
         {
             now.height = stack[stack_p-1].height - 1;
-            now.box = quad_chop(stack[stack_p-1].box, quad);
+            now.box = quad_chop(&stack[stack_p-1].box, quad);
         }
         else
         {
@@ -274,18 +266,18 @@ void render (uint8_t* nodes)
             now.box.yr.r1 = 0; now.box.yr.r2 = 1<<now.height;
         }
         // ignore, render or recurse the node & branches
-        if (! in_view(now.box.xr, now.box.yr))
+        if (! in_view(&now.box.xr, &now.box.yr))
             {continue;}
         interesting = 0;
         for (q=0; q<4; q++)
         {
-            box2 = quad_chop(now.box, q);
+            box2 = quad_chop(&now.box, q);
             if (now.branches[q] == 2)
-                {blit_box(box2); continue;}
+                {blit_box(&box2); continue;}
             if (now.height == target_height)
-                {blit_dither(box2, raw[0]); continue;}
+                {blit_dither(&box2, raw[0]); continue;}
             if (now.branches[q] < 0)
-                {blit_leaf(box2, &(nodes[-8*now.branches[q]])); continue;}
+                {blit_leaf(&box2, &(nodes[-8*now.branches[q]])); continue;}
             if (now.branches[q] <= 2)
                 {continue;}
             todo[todo_p].address = now.branches[q];
