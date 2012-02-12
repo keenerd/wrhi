@@ -111,16 +111,14 @@ def blit_leaf(screen_map, xr, yr, zoom, raw):
             pixel(x2+x//zoom, y2+y//zoom)
 
 def blit_dither(screen_map, xr, yr, raw):
-    xm = sum(xr)//2
-    ym = sum(yr)//2
-    if raw & 8:
+    if (raw & 8):
         pixel(*screen_map(xr[0], yr[0]))
-    if raw & 4:
-        pixel(*screen_map(xm, yr[0]))
-    if raw & 2:
-        pixel(*screen_map(xm, ym))
-    if raw & 1:
-        pixel(*screen_map(xr[0], ym))
+    if (raw & 4):
+        pixel(*screen_map(xr[0]+1, yr[0]))
+    if (raw & 2):
+        pixel(*screen_map(xr[0]+1, yr[0]+1))
+    if (raw & 1):
+        pixel(*screen_map(xr[0], yr[0]+1))
 
 def render(nodes, bbox, center, zoom):
     "simple one shot renderer"
@@ -189,7 +187,7 @@ def main(path):
     center = random.randint(0,500), random.randint(0,500)
     zoom = random.choice((1,1,1,1,2,2,4,8,16,32))
     center = (256, 256)
-    zoom = 1
+    zoom = 16
     print center, zoom
     try:
         render(nodes, (240,208), center, zoom)
