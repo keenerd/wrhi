@@ -2,11 +2,12 @@
 // for viewing WikiReader Huge Images
 
 #include <stdio.h>
+#include <string.h>
 
 #include <grifo.h>
 
 #define STACKDEPTH 20
-#define IMAGECACHE 4000000
+#define IMAGECACHE 2000000
 
 /*
 quad tree with 8 bytes nodes/leaves
@@ -71,6 +72,8 @@ int main (void)
 }
 
 // globals galore
+char file_name[256];
+uint8_t nodes[IMAGECACHE];
 int zoom;
 struct point center;
 struct area viewport;
@@ -311,12 +314,17 @@ void render (uint8_t* nodes)
     }
 }
 
-void load_wrhi (char* path, char* nodes)
+void load_wrhi (char* name, char* nodes)
 // put entire thing in ram, max IMAGECACHE
 // this only does 8.3 filenames
 {
+    char full_path[256];
     int fd, fs, fp;
-    fd = file_open(path, FILE_OPEN_READ);
+    strcpy(full_path, "IMAGES/");
+    strcat(full_path, name);
+    //strcpy(full_path, "IMAGES/LENA.WRI");
+    fd = file_open(full_path, FILE_OPEN_READ);
+    //fd = file_open(name, FILE_OPEN_READ);
     // check fd >= 0 ?
     fs = file_read(fd, nodes, 512);
     fp = fs;
@@ -328,16 +336,58 @@ void load_wrhi (char* path, char* nodes)
     file_close(fd);
 }
 
+void find_next()
+// checks in the images directory, sets global file_name
+{
+    int fd, fs;
+    int next_name = 0;
+    char buf[256];
+    buf[0] = '\0';
+    fd = directory_open("IMAGES");
+    fs = directory_read(fd, buf, 256);
+    buf[fs] = '\0';  // directory_read is buggy
+    if (strlen(file_name) == 0)
+    {
+        strcpy(file_name, buf);
+        return;
+    }
+    if (strcmp(file_name, buf) == 0)
+        {next_name = 1;} 
+    while (fs > 0)
+    {
+        fs = directory_read(fd, buf, 256);
+        buf[fs] = '\0';
+        if (next_name && fs)
+        {
+            strcpy(file_name, buf);
+            next_name = 0;
+            break;
+        }
+        if (strcmp(file_name, buf) == 0)
+            {next_name = 1;} 
+    }
+    directory_close(fd);
+    if (next_name)  // looped around, start over
+    {
+        strcpy(file_name, "");
+        find_next();
+    }
+}
+
 int handle_input()
 // return true if something happened
 {
-    event_t event;
-    int button = -1, active = 0, x_delta = 0, y_delta = 0;
     static int x_prev, y_prev;
+    event_t event;
+    event_item_t etype;
+    int button = -1, active = 0, x_delta = 0, y_delta = 0;
+    int empties = 0;
 
-    do
+    while (empties < 5)
     {
-        switch (event_get(&event))
+	etype = event_get(&event);
+        //event_flush();
+        switch (etype)
         {
             case EVENT_BUTTON_DOWN:
                 //lcd_printf("%i\n", event.button.code);
@@ -362,12 +412,15 @@ int handle_input()
                 active = 1;
                 break;
 
+            case EVENT_NONE:
+                empties++;
+                break;
+
             default:
                 break;
         }
-        event_flush();
         delay_us(10000);  // cheap debounce	
-    } while (event.item_type != EVENT_NONE);
+    }
 
     event_flush();
 
@@ -380,7 +433,9 @@ int handle_input()
 
     if (button == 2)  // history
     {
-        // todo, jump to next file
+        find_next();
+        load_wrhi(file_name, nodes);
+        //load_wrhi("images/lena.wri", nodes);
     }
 
     if (button == 0)  // random
@@ -410,10 +465,10 @@ void flip()
 
 void run ()
 {
-    uint8_t nodes[IMAGECACHE];
     uint8_t fb1_post[LCD_BUFFER_SIZE_BYTES];
     uint8_t fb2_post[LCD_BUFFER_SIZE_BYTES];
     // initialize globals
+    strcpy(file_name, "");
     zoom = 1;
     center.x = 256; center.y = 256;
     fb1 = fb1_post;
@@ -422,7 +477,9 @@ void run ()
     clear_framebuffer();
     flip();
     clear_framebuffer();
-    load_wrhi("lena.wri", nodes);
+    find_next();
+    strcpy(file_name, "mit.wri");
+    load_wrhi(file_name, nodes);
     render(nodes);
     flip();
     for (;;)
