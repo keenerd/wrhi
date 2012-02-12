@@ -1,17 +1,12 @@
 // QUAd Fractal Format
 // for viewing WikiReader Huge Images
 
-#include <stdlib.h>
-#include <stdarg.h>
-#include <inttypes.h>
-#include <ctype.h>
 #include <stdio.h>
-#include <string.h>
 
 #include <grifo.h>
 
 #define STACKDEPTH 20
-#define IMAGECACHE 2000000
+#define IMAGECACHE 4000000
 
 /*
 quad tree with 8 bytes nodes/leaves
@@ -220,16 +215,17 @@ void lcd_set_point (struct point p)
 }
 
 void blit_dither (struct area leaf, uint8_t raw)
+// this seems generally buggy
 {
     int xm = (leaf.xr.r1 + leaf.xr.r2) / 2;
     int ym = (leaf.yr.r1 + leaf.yr.r2) / 2;
-    if (raw & 8)
+    if (! raw & 8)
         {lcd_set_point(screen_map(leaf.xr.r1, leaf.yr.r1));}
-    if (raw & 4)
+    if (! raw & 4)
         {lcd_set_point(screen_map(xm, leaf.yr.r1));}
-    if (raw & 2)
+    if (! raw & 2)
         {lcd_set_point(screen_map(xm, ym));}
-    if (raw & 1)
+    if (! raw & 1)
         {lcd_set_point(screen_map(leaf.xr.r1, ym));}
 }
 
@@ -322,6 +318,73 @@ void load_wrhi (char* path, char* nodes)
     file_close(fd);
 }
 
+int handle_input()
+// return true if something happened
+{
+    event_t event;
+    int button = -1, active = 0, x_delta = 0, y_delta = 0;
+    static int x_prev, y_prev;
+
+    switch (event_get(&event))
+    {
+        case EVENT_BUTTON_DOWN:
+            button = event.button.code;
+            //lcd_printf("%i\n", event.button.code);
+            break;
+
+        case EVENT_BUTTON_UP:
+            break;
+
+	case EVENT_TOUCH_DOWN:
+            x_prev = event.touch.x;
+            y_prev = event.touch.y;
+            break;
+
+        case EVENT_TOUCH_MOTION:
+            //lcd_printf("%i %i\n", event.touch.x, event.touch.y);
+            x_delta = event.touch.x - x_prev;
+            y_delta = event.touch.y - y_prev;
+            x_prev = event.touch.x;
+            y_prev = event.touch.y;
+            break;
+
+        default:
+            break;
+    }
+    event_flush();
+
+    if (button == 1)  // search
+    {
+        zoom = zoom * 2;
+        if (zoom > 64)
+            {zoom = 64;}
+        active = 1;
+    }
+
+    if (button == 2)  // history
+    {
+        // todo, jump to next file
+        active = 1;
+    }
+
+    if (button == 0)  // random
+    {
+        zoom = zoom / 2;
+        if (zoom < 1)
+            {zoom = 1;}
+        active = 1;
+    }
+
+    if (x_delta || y_delta)  // motion
+    {
+        center.x -= x_delta * zoom;
+        center.y -= y_delta * zoom;
+        active = 1;
+    }
+
+    return active;
+}
+
 void run ()
 {
     uint8_t nodes[IMAGECACHE];
@@ -332,12 +395,17 @@ void run ()
     refresh_viewport();
     load_wrhi("lena.wri", nodes);
     render(nodes);
-    blinker();
     for (;;)
     {
         // page flipping?
         // wait for input
-        delay_us(1000000);
+        delay_us(100000);
+        if (handle_input())
+        {
+            refresh_viewport();
+            lcd_clear(0);
+            render(nodes);
+        }
     }
 }
 
