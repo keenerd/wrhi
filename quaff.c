@@ -73,7 +73,7 @@ int main (void)
 
 // globals galore
 char file_name[256];
-uint8_t nodes[IMAGECACHE];
+uint8_t* img_cache;
 int zoom;
 struct point center;
 struct area viewport;
@@ -243,7 +243,7 @@ void blit_dither (struct area* leaf, uint8_t raw)
         {lcd_set_point(screen_map(leaf->xr.r1, leaf->yr.r1+1));}
 }
 
-void render (uint8_t* nodes)
+void render ()
 {
     int target_height = 3;
     struct todo_element todo[STACKDEPTH * 4];
@@ -271,7 +271,7 @@ void render (uint8_t* nodes)
             {stack_p--;}
         now = stack[stack_p];
         now.address = addr;
-        raw = &(nodes[addr*8]);
+        raw = &(img_cache[addr*8]);
         // unpack data and store in struct on stack
         branch0 = combine32(raw[3], raw[4], raw[5], raw[6]);
         build_branches(now.branches, branch0, raw[1], raw[2]);
@@ -298,7 +298,7 @@ void render (uint8_t* nodes)
             if (now.height == target_height)
                 {blit_dither(&box2, raw[0]); continue;}
             if (now.branches[q] < 0)
-                {blit_leaf(&box2, &(nodes[-8*now.branches[q]])); continue;}
+                {blit_leaf(&box2, &(img_cache[-8*now.branches[q]])); continue;}
             if (now.branches[q] <= 2)
                 {continue;}
             todo[todo_p].address = now.branches[q];
@@ -314,7 +314,7 @@ void render (uint8_t* nodes)
     }
 }
 
-void load_wrhi (char* name, char* nodes)
+void load_wrhi (char* name)
 // put entire thing in ram, max IMAGECACHE
 // this only does 8.3 filenames
 {
@@ -326,11 +326,11 @@ void load_wrhi (char* name, char* nodes)
     fd = file_open(full_path, FILE_OPEN_READ);
     //fd = file_open(name, FILE_OPEN_READ);
     // check fd >= 0 ?
-    fs = file_read(fd, nodes, 512);
+    fs = file_read(fd, img_cache, 512);
     fp = fs;
     while (fs > 0)
     {
-        fs = file_read(fd, &nodes[fp], 512);
+        fs = file_read(fd, &img_cache[fp], 512);
         fp += fs;
     }
     file_close(fd);
@@ -434,8 +434,8 @@ int handle_input()
     if (button == 2)  // history
     {
         find_next();
-        load_wrhi(file_name, nodes);
-        //load_wrhi("images/lena.wri", nodes);
+        load_wrhi(file_name);
+        //load_wrhi("images/lena.wri");
     }
 
     if (button == 0)  // random
@@ -465,22 +465,24 @@ void flip()
 
 void run ()
 {
+    uint8_t nodes[IMAGECACHE];
     uint8_t fb1_post[LCD_BUFFER_SIZE_BYTES];
     uint8_t fb2_post[LCD_BUFFER_SIZE_BYTES];
     // initialize globals
+    img_cache = nodes;
+    fb1 = fb1_post;
+    fb2 = fb2_post;
     strcpy(file_name, "");
     zoom = 1;
     center.x = 256; center.y = 256;
-    fb1 = fb1_post;
-    fb2 = fb2_post;
     refresh_viewport();
     clear_framebuffer();
     flip();
     clear_framebuffer();
     find_next();
-    strcpy(file_name, "mit.wri");
-    load_wrhi(file_name, nodes);
-    render(nodes);
+    //strcpy(file_name, "mit.wri");
+    load_wrhi(file_name);
+    render();
     flip();
     for (;;)
     {
@@ -489,7 +491,7 @@ void run ()
         {
             refresh_viewport();
             clear_framebuffer();
-            render(nodes);
+            render();
             flip();
         }
     }
