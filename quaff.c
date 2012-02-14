@@ -7,7 +7,7 @@
 #include <grifo.h>
 
 #define STACKDEPTH 20
-#define IMAGECACHE 2000000
+#define IMAGECACHE 4000000
 
 /*
 quad tree with 8 bytes nodes/leaves
@@ -28,7 +28,6 @@ Leaf:
 // lcd_set_point() being a pain
 // biggest slowdown is single pixel writes
 // figure out byte writes
-// figure out memcpy based panning
 
 struct point
 {
@@ -137,8 +136,7 @@ int overlap (struct range* a, struct range* b)
 {
     if (a->r1 < b->r1)
         {return (a->r2 > b->r1);}
-    else
-        {return (b->r2 > a->r1);}
+    return (b->r2 > a->r1);
 }
 
 void refresh_viewport ()
@@ -204,21 +202,18 @@ void blit_box (struct area* leaf)
     p = screen_map(leaf->xr.r2, leaf->yr.r2);
     x2 = p.x;
     y2 = p.y;
-    for (x=x1; x<x2; x++) { for (y=y1; y<y2; y++)
+    for (y=y1; y<y2; y++) { for (x=x1; x<x2; x++)
         {pixel_framebuffer(x, y);}
     }
 }
 
 void blit_leaf (struct area* leaf, uint8_t* raw)
-// raw should be 8 characters long
 {
     struct point p;
     int x, y;
     p = screen_map(leaf->xr.r1, leaf->yr.r1);
-    // could this be replaced with write-byte-to-buffer?
-    // would need to snap viewport to 8 and only helps zoom 1
-    for (x=0; x<8; x+=zoom) { for (y=0; y<8; y+=zoom) {
-        if (raw[x] & (1<<(7-y)))
+    for (y=0; y<8; y+=zoom) { for (x=0; x<8; x+=zoom) {
+        if (!(raw[y] & (1<<(7-x))))
             {continue;}
         pixel_framebuffer(p.x + x/zoom, p.y + y/zoom);
     }}
@@ -233,32 +228,31 @@ void lcd_set_point (struct point p)
 
 void blit_dither (struct area* leaf, uint8_t raw)
 {
-    if (! raw & 8)
+    if (raw & 8)
         {lcd_set_point(screen_map(leaf->xr.r1, leaf->yr.r1));}
-    if (! raw & 4)
+    if (raw & 4)
         {lcd_set_point(screen_map(leaf->xr.r1+1, leaf->yr.r1));}
-    if (! raw & 2)
+    if (raw & 2)
         {lcd_set_point(screen_map(leaf->xr.r1+1, leaf->yr.r1+1));}
-    if (! raw & 1)
+    if (raw & 1)
         {lcd_set_point(screen_map(leaf->xr.r1, leaf->yr.r1+1));}
 }
 
 void render ()
 {
-    int target_height = 3;
     struct todo_element todo[STACKDEPTH * 4];
     struct recursive_element stack[STACKDEPTH];
     struct recursive_element now;
     int todo_p=0, stack_p=0;
-    int addr, quad, interesting, q;
+    int addr, branch0, quad, interesting, q;
     uint8_t* raw;
-    int branch0;
     struct area box2;
+    int target_height = 3;
     if (zoom == 16)
         {target_height = 4;}
     if (zoom == 32)
         {target_height = 5;}
-    if (zoom == 64)
+    if (zoom >= 64)
         {target_height = 6;}
     todo[0].address = 2;  // seed root
     todo_p = 1;
@@ -322,9 +316,7 @@ void load_wrhi (char* name)
     int fd, fs, fp;
     strcpy(full_path, "IMAGES/");
     strcat(full_path, name);
-    //strcpy(full_path, "IMAGES/LENA.WRI");
     fd = file_open(full_path, FILE_OPEN_READ);
-    //fd = file_open(name, FILE_OPEN_READ);
     // check fd >= 0 ?
     fs = file_read(fd, img_cache, 512);
     fp = fs;
@@ -435,7 +427,6 @@ int handle_input()
     {
         find_next();
         load_wrhi(file_name);
-        //load_wrhi("images/lena.wri");
     }
 
     if (button == 0)  // random
@@ -480,7 +471,6 @@ void run ()
     flip();
     clear_framebuffer();
     find_next();
-    //strcpy(file_name, "mit.wri");
     load_wrhi(file_name);
     render();
     flip();

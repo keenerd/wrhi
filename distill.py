@@ -76,10 +76,10 @@ class Node(object):
         else:
             xm = sum(self.xr) // 2
             ym = sum(self.yr) // 2
-            dither =            bool(self.pix(self.xr[0], self.yr[0]))
-            dither = dither*2 + bool(self.pix(xm, self.yr[0]))
-            dither = dither*2 + bool(self.pix(xm, ym))
-            dither = dither*2 + bool(self.pix(self.xr[0], ym))
+            dither =            (not bool(self.pix(self.xr[0], self.yr[0])))
+            dither = dither*2 + (not bool(self.pix(xm, self.yr[0])))
+            dither = dither*2 + (not bool(self.pix(xm, ym)))
+            dither = dither*2 + (not bool(self.pix(self.xr[0], ym)))
             binary.append(dither)
         t0 = block_type(blocks, self.children[0])
         t1 = block_type(blocks, self.children[1])
@@ -156,10 +156,10 @@ def literal(node):
     if node.size != 3:
         raise
     n = 0
-    for x,y in product(range(*node.xr), range(*node.yr)):
+    for y,x in product(range(*node.yr), range(*node.xr)):
         n *= 2
         try:
-            if pix[x,y]:
+            if not pix[x,y]:
                 n += 1
         except IndexError:
             pass
