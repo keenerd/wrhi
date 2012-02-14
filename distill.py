@@ -5,6 +5,7 @@
 from PIL import Image
 from dither import recursive_dither
 from itertools import *
+from collections import defaultdict
 
 # wikireader huge image distill
 # turns an image into a wrhi file
@@ -44,31 +45,30 @@ make a stego-dither algo and embed it inside the picture
 """
 
 class Node(object):
-    def __init__(self, pix, xr, yr):
+    def __init__(self, parent, xr, yr):
         "size is log2"
         self.root = False
-        self.pix = pix
+        self.parent = parent
+        try:
+            self._pix = parent._pix
+        except AttributeError:
+            self._pix = parent  # root node
+            self.parent = None
         self.xr = xr
         self.yr = yr
         self.children = [None] * 4
         self.out_of_bounds = xr[0]>xr[1] or yr[0]>yr[1]
         if self.out_of_bounds:
             return
-        b,w = 0,0
-        # this could be 15 times faster by recursing up instead of down
-        for x,y in product(range(*xr), range(*yr)):
-            try:
-                if pix[x,y]:
-                    w += 1
-                else:
-                    b += 1
-            except IndexError:
-                pass
+        self.b_count, self.w_count = tally[self.xr + self.yr]
         self.size = int_log2(max(xr[1]-xr[0], yr[1]-yr[0]))
-        self.b_count = b
-        self.w_count = w
     def __repr__(self):
         return str((self.xr, self.yr, self.children))
+    def pix(self, x, y):
+        try:
+            return self._pix[x,y]
+        except IndexError:
+            return True
     def bitwise(self, blocks):
         binary = []
         if self.root:
@@ -76,10 +76,10 @@ class Node(object):
         else:
             xm = sum(self.xr) // 2
             ym = sum(self.yr) // 2
-            dither = bool(self.pix[self.xr[0], self.yr[0]])
-            dither = dither*2 + bool(self.pix[xm, self.yr[0]])
-            dither = dither*2 + bool(self.pix[xm, ym])
-            dither = dither*2 + bool(self.pix[self.xr[0], ym])
+            dither =            bool(self.pix(self.xr[0], self.yr[0]))
+            dither = dither*2 + bool(self.pix(xm, self.yr[0]))
+            dither = dither*2 + bool(self.pix(xm, ym))
+            dither = dither*2 + bool(self.pix(self.xr[0], ym))
             binary.append(dither)
         t0 = block_type(blocks, self.children[0])
         t1 = block_type(blocks, self.children[1])
@@ -87,9 +87,8 @@ class Node(object):
         t3 = block_type(blocks, self.children[3])
         binary.append((t0<<4) + t1)
         binary.append((t2<<4) + t3)
-        # +2 offset for header bytes
         try:
-            pointer = min(c for c in self.children if type(c) == int) + 2
+            pointer = min(c for c in self.children if type(c) == int)
         except TypeError:   # no child pointers
             pointer = 0
         except ValueError:  # no child pointers
@@ -122,6 +121,8 @@ def bitwise(n, bits):
         yield out
 
 def print_bin(blocks, block):
+    if type(block) == str:
+        return map(ord, block)
     binary = []
     if type(block) in (int, long):
         for b in bitwise(block, 64):
@@ -145,10 +146,10 @@ def chop_by_quad(node):
     y1 = node.yr[0]
     y2 = y1 + (1<<(node.size-1))
     y3 = node.yr[1]
-    return [Node(node.pix, (x1,x2), (y1,y2)),
-            Node(node.pix, (x2,x3), (y1,y2)),
-            Node(node.pix, (x2,x3), (y2,y3)),
-            Node(node.pix, (x1,x2), (y2,y3))]
+    return [Node(node, (x1,x2), (y1,y2)),
+            Node(node, (x2,x3), (y1,y2)),
+            Node(node, (x2,x3), (y2,y3)),
+            Node(node, (x1,x2), (y2,y3))]
 
 def literal(node):
     "return 64 bit int, black is 1"
@@ -164,19 +165,52 @@ def literal(node):
             pass
     return n
 
+def fast_count(pix, size):
+    tally = defaultdict(lambda: [0,0])  # (x, x, y, y) : (black, white)
+    for x,y in product(range(0, size[0], 8), range(0, size[1], 8)):
+        b,w = 0,0
+        for xsub,ysub in product(range(8), range(8)):
+            if x+xsub >= size[0]:
+                continue
+            if y+ysub >= size[1]:
+                continue
+            if pix[x+xsub,y+ysub]:
+                w += 1
+            else:
+                b += 1
+        tally[(x,x+8,y,y+8)] = (b,w)
+        tally[(x, min(x+8, size[0]), y, min(y+8, size[1]))] = (b,w)
+    added = len(tally)
+    ival = 8
+    while added > 1:
+        added = 0
+        ival *= 2
+        for x,y in product(range(0, size[0], ival), range(0, size[1], ival)):
+            added += 1
+            branches = [tally[(x,         x+ival//2, y,         y+ival//2)], 
+                        tally[(x+ival//2, x+ival,    y,         y+ival//2)],
+                        tally[(x+ival//2, x+ival,    y+ival//2, y+ival)],
+                        tally[(x,         x+ival//2, y+ival//2, y+ival)]]
+            tally[(x,x+ival,y,y+ival)] = map(sum, zip(*branches))
+            tally[(x, min(x+ival, size[0]), y, min(y+ival, size[1]))] = map(sum, zip(*branches))
+    return tally
+
 #img = Image.open('lena.png')
 img = recursive_dither('lena-gray.png')
+print "dithering complete"
+img.save('/tmp/dither.png')
 pix = img.load()
+tally = fast_count(pix, img.size)
 root_height = int_log2(max(img.size))
 #print root_height
 
-blocks = []
+blocks = ['#!quafit\n', '#v0000\n']
 root = Node(pix, (0,img.size[0]), (0,img.size[1]))
 root.root = True
 blocks.append(root)
 #print blocks
 
-todo = [0]  # blocks to quadify
+todo = [2]  # blocks to quadify
 
 while todo:
     now = todo.pop(0)
@@ -210,12 +244,11 @@ while todo:
 #print 'block count', len(blocks)
 
 binary = []
-binary.extend(map(ord, '#!quafit\n'))
-binary.extend(map(ord, '#v0000\n'))
 [binary.extend(print_bin(blocks, b)) for b in blocks]
+assert all(0<=b<=255 for b in binary)
 
 #print len(binary)
-f = open('lena.wrhi', 'wb')
+f = open('/tmp/image.wri', 'wb')
 f.write(''.join(map(chr, binary)))
 f.close()
 
