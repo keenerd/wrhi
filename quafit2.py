@@ -8,10 +8,10 @@ import Tkinter as tk
 """
 Node:
     height/dither (8 bit)
+    crop/dither (8 bit)  # crop not implemented in decoder
     type 0,1,2,3 (16 bit)
         exists, leaf, bounds, color
     child[0] pointer (32 bit)
-    crop (8 bit)  # not implemented in decoder
 
 Leaf:
     8x8 1 bit block (64 bits)
@@ -109,19 +109,23 @@ def blit_leaf(screen_map, xr, yr, zoom, raw):
                 continue
             pixel(x2+x//zoom, y2+y//zoom)
 
-def blit_dither(screen_map, xr, yr, raw):
-    if raw & 8:
-        pixel(*screen_map(xr[0], yr[0]))
-    if raw & 4:
-        pixel(*screen_map(xr[0]+1, yr[0]))
-    if raw & 2:
-        pixel(*screen_map(xr[0]+1, yr[0]+1))
-    if raw & 1:
-        pixel(*screen_map(xr[0], yr[0]+1))
+def blit_dither(screen_map, xr, yr, raw0, raw1):
+    x2,y2 = screen_map(xr[0], yr[0])
+    #print bin(raw0), bin(raw1)
+    for x in range(0, 4):
+        mask = 1 << (3-x)
+        if (raw0//16) & mask:
+            pixel(x2+x, y2)
+        if raw0       & mask:
+            pixel(x2+x, y2+1)
+        if (raw1//16) & mask:
+            pixel(x2+x, y2+2)
+        if raw1       & mask:
+            pixel(x2+x, y2+3)
 
 def render(nodes, bbox, center, zoom):
     "simple one shot renderer"
-    target_height = {1:3, 2:3, 4:3, 8:3, 16:4, 32:5, 64:6}[zoom]
+    target_height = {1:3, 2:3, 4:4, 8:5, 16:6, 32:7, 64:8}[zoom]
     in_view = in_view_fn(bbox, center, zoom)
     screen_map = screen_map_fn(bbox, center, zoom)
     # set up the root
@@ -138,8 +142,8 @@ def render(nodes, bbox, center, zoom):
             stack_p -= 1
         raw = nodes[8*addr:]
         # unpack data and store in struct on stack
-        branch0 = combine32(raw[3], raw[4], raw[5], raw[6])
-        branches = build_branches(branch0, raw[1], raw[2])
+        branch0 = combine32(raw[4], raw[5], raw[6], raw[7])
+        branches = build_branches(branch0, raw[2], raw[3])
         if stack_p > 0:
             height = stack[stack_p-1].height - 1
             xr, yr = quad_chop(stack[stack_p-1].xr, stack[stack_p-1].yr, quad)
@@ -151,14 +155,14 @@ def render(nodes, bbox, center, zoom):
         #print 'stack', len(stack), 'todo', len(todo)
         #print 'now', addr, height, xr, yr
         #print branches, '\n'
+        if height == target_height:
+            blit_dither(screen_map, xr, yr, raw[0], raw[1])
+            continue
         interesting = False
         for q in range(4):
             xrq,yrq = quad_chop(xr, yr, q)
             if branches[q] == 2:
                 blit_box(screen_map, xrq, yrq)
-                continue
-            if height == target_height:
-                blit_dither(screen_map, xrq, yrq, raw[0]) 
                 continue
             if branches[q] < 0:
                 blit_leaf(screen_map, xrq, yrq, zoom, nodes[-8*branches[q]:]) 
@@ -186,7 +190,7 @@ def main(path):
     center = random.randint(0,500), random.randint(0,500)
     zoom = random.choice((1,1,1,1,2,2,4,8,16,32))
     center = (256, 256)
-    zoom = 1
+    zoom = 4
     print center, zoom
     try:
         render(nodes, (240,208), center, zoom)

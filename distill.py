@@ -13,10 +13,6 @@ from collections import defaultdict
 """
 Convert 1 bit png to a quad tree
 Specifically for the Wikireader
-(Later, make app for panning/zooming these)
-
-Tree should be heap-ish, for easy parsing
-Nodes should have color ratio, for future easy dithering
 
 since the tree is BF, all quads are sequential
 only store pointer to quad[0]!
@@ -24,12 +20,13 @@ only store pointer to quad[0]!
 Node:
     height/dither (8 bit)
         height only in root
-        dither only uses 4 bits, one per child
+        first half of 16 bit dither
+    crop/dither (8 bit)
+        crop only in root (2x3 bit)
+        second half of 16 bit dither
     type 0,1,2,3 (16 bit)
         exists, leaf, bounds, color
     child[0] pointer (32 bit)
-    crop (8 bit)
-        only used in root, 2x3 bit
 
 Leaf:
     8x8 1 bit block (64 bits)
@@ -37,10 +34,6 @@ Leaf:
 Load tree DFS with a stack
 Discard branches that are outside viewport
 If you are clever, panning viewport is only new pixels on edge
-
-generating zoom{2,4,8} dynamically is dumb
-embed it somewhere
-make a stego-dither algo and embed it inside the picture
 
 """
 
@@ -73,14 +66,12 @@ class Node(object):
         binary = []
         if self.root:
             binary.append(self.size)
+            binary.append((self.xr[1]%8)*16 + self.yr[1]%8)
         else:
-            xm = sum(self.xr) // 2
-            ym = sum(self.yr) // 2
-            dither =            (not bool(self.pix(self.xr[0], self.yr[0])))
-            dither = dither*2 + (not bool(self.pix(xm, self.yr[0])))
-            dither = dither*2 + (not bool(self.pix(xm, ym)))
-            dither = dither*2 + (not bool(self.pix(self.xr[0], ym)))
-            binary.append(dither)
+            dither = 0
+            for y,x in dither16(self.xr, self.yr):
+                dither = dither*2 + (not bool(self.pix(x, y)))
+            binary.extend(bitwise(dither, 16))
         t0 = block_type(blocks, self.children[0])
         t1 = block_type(blocks, self.children[1])
         t2 = block_type(blocks, self.children[2])
@@ -95,11 +86,13 @@ class Node(object):
             pointer = 0
         assert pointer < len(blocks)
         binary.extend(bitwise(pointer, 32))
-        if self.root:
-            binary.append((self.xr[1]%8)*16 + self.yr[1]%8)
-        else:
-            binary.append(0)
         return binary
+
+def dither16(xr, yr):
+    "generate sample points"
+    xi = (xr[1] - xr[0])//4
+    yi = (yr[1] - yr[0])//4
+    return product(range(yr[0], yr[1], yi), range(xr[0], xr[1], xi))
 
 def block_type(blocks, child):
     # exists, leaf, bounds, color
@@ -251,5 +244,4 @@ assert all(0<=b<=255 for b in binary)
 f = open('/tmp/image.wri', 'wb')
 f.write(''.join(map(chr, binary)))
 f.close()
-
 

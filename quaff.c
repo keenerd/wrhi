@@ -14,10 +14,11 @@ quad tree with 8 bytes nodes/leaves
 
 Node:
     height/dither (8 bit)
+    crop/dither (8 bit) 
+        crop is 2x3 bit and not implemented in this decoder
     type 0,1,2,3 (16 bit)
         exists, leaf, bounds, color
     child[0] pointer (32 bit)
-    crop (2x3 bit)  # not implemented in this decoder
 
 Leaf:
     8x8 1 bit block (64 bits)
@@ -25,7 +26,6 @@ Leaf:
 
 // turns out every struct call does a full copy
 // use pointers instead
-// lcd_set_point() being a pain
 // biggest slowdown is single pixel writes
 // figure out byte writes
 
@@ -78,15 +78,22 @@ struct point center;
 struct area viewport;
 uint8_t* fb1;
 uint8_t* fb2;
+uint8_t lut_zoom2[256];
+uint8_t high_bits[9] = {0x00, 0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xFE, 0xFF};
 
-void clear_framebuffer()
+int min (int a, int b)
+{
+    return a < b ? a : b;
+}
+
+void clear_framebuffer ()
 {
     int i;
     for (i=0; i < LCD_BUFFER_SIZE_BYTES; i++)
         {fb1[i] = '\0';}
 }
 
-void pixel_framebuffer(int x, int y)
+void pixel_framebuffer (int x, int y)
 // just as slow as the stock lcd_set_pixel
 {
     int i;
@@ -94,6 +101,25 @@ void pixel_framebuffer(int x, int y)
     if (i >= LCD_BUFFER_SIZE_BYTES)
         {return;}  // should not be needed, but seems to happen...
     fb1[i] |= 1 << (7 - (x % 8));
+}
+
+void byte_framebuffer (int x, int y, uint8_t b)
+// write 8 bits at once
+{
+    int i, offset;
+    uint8_t bA, bB;
+    i = y * LCD_BUFFER_WIDTH_BYTES + x/8;
+    if (i >= LCD_BUFFER_SIZE_BYTES)
+        {return;}
+    if (x < 0)
+        {i -= 1;}
+    offset = (x + 8) % 8;
+    bA = b >> offset;
+    bB = b << (8 - offset);
+    if (bA)
+        {fb1[i]   |= bA;}
+    if (bB)
+        {fb1[i+1] |= bB;}
 }
 
 int parse_type (uint8_t n)
@@ -200,42 +226,42 @@ void blit_box (struct area* leaf)
     x1 = p.x;
     y1 = p.y;
     p = screen_map(leaf->xr.r2, leaf->yr.r2);
-    x2 = p.x;
-    y2 = p.y;
-    for (y=y1; y<y2; y++) { for (x=x1; x<x2; x++)
-        {pixel_framebuffer(x, y);}
-    }
+    x2 = min(p.x, LCD_WIDTH);
+    y2 = min(p.y, LCD_HEIGHT);
+    for (y=y1; y<y2; y++) { for (x=x1; x<x2; x+=8)
+    {
+	if (x+8 <= x2)
+            {byte_framebuffer(x, y, 0xFF);}
+        else
+            {byte_framebuffer(x, y, high_bits[x2-x]);}
+    }}
 }
 
 void blit_leaf (struct area* leaf, uint8_t* raw)
 {
     struct point p;
-    int x, y;
+    int y;
     p = screen_map(leaf->xr.r1, leaf->yr.r1);
-    for (y=0; y<8; y+=zoom) { for (x=0; x<8; x+=zoom) {
-        if (!(raw[y] & (1<<(7-x))))
-            {continue;}
-        pixel_framebuffer(p.x + x/zoom, p.y + y/zoom);
-    }}
+    if (zoom == 1)
+    {
+        for (y=0; y<8; y++)
+            {byte_framebuffer(p.x, p.y+y, raw[y]);}
+    }
+    if (zoom == 2)
+    {
+        for (y=0; y<8; y+=2)
+            {byte_framebuffer(p.x, p.y+y/2, lut_zoom2[raw[y]]);}
+    }
 }
 
-void lcd_set_point (struct point p)
-// convenient wrapper because this gets annoying
-// could probably macro this
+void blit_dither (struct area* leaf, uint8_t raw0, uint8_t raw1)
 {
-    pixel_framebuffer(p.x, p.y);
-}
-
-void blit_dither (struct area* leaf, uint8_t raw)
-{
-    if (raw & 8)
-        {lcd_set_point(screen_map(leaf->xr.r1, leaf->yr.r1));}
-    if (raw & 4)
-        {lcd_set_point(screen_map(leaf->xr.r1+1, leaf->yr.r1));}
-    if (raw & 2)
-        {lcd_set_point(screen_map(leaf->xr.r1+1, leaf->yr.r1+1));}
-    if (raw & 1)
-        {lcd_set_point(screen_map(leaf->xr.r1, leaf->yr.r1+1));}
+    struct point p;
+    p = screen_map(leaf->xr.r1, leaf->yr.r1);
+    byte_framebuffer(p.x, p.y,   raw0 & 0xF0);
+    byte_framebuffer(p.x, p.y+1, raw0 << 4);
+    byte_framebuffer(p.x, p.y+2, raw1 & 0xF0);
+    byte_framebuffer(p.x, p.y+3, raw1 << 4);
 }
 
 void render ()
@@ -248,12 +274,16 @@ void render ()
     uint8_t* raw;
     struct area box2;
     int target_height = 3;
-    if (zoom == 16)
+    if (zoom == 4)
         {target_height = 4;}
-    if (zoom == 32)
+    if (zoom == 8)
         {target_height = 5;}
-    if (zoom >= 64)
+    if (zoom == 16)
         {target_height = 6;}
+    if (zoom == 32)
+        {target_height = 7;}
+    if (zoom >= 64)
+        {target_height = 8;}
     todo[0].address = 2;  // seed root
     todo_p = 1;
     while (todo_p > 0)
@@ -267,8 +297,8 @@ void render ()
         now.address = addr;
         raw = &(img_cache[addr*8]);
         // unpack data and store in struct on stack
-        branch0 = combine32(raw[3], raw[4], raw[5], raw[6]);
-        build_branches(now.branches, branch0, raw[1], raw[2]);
+        branch0 = combine32(raw[4], raw[5], raw[6], raw[7]);
+        build_branches(now.branches, branch0, raw[2], raw[3]);
         if (stack_p > 0)
         {
             now.height = stack[stack_p-1].height - 1;
@@ -283,14 +313,14 @@ void render ()
         // ignore, render or recurse the node & branches
         if (! in_view(&now.box.xr, &now.box.yr))
             {continue;}
+        if (now.height == target_height)
+            {blit_dither(&now.box, raw[0], raw[1]); continue;}
         interesting = 0;
         for (q=0; q<4; q++)
         {
             box2 = quad_chop(&now.box, q);
             if (now.branches[q] == 2)
                 {blit_box(&box2); continue;}
-            if (now.height == target_height)
-                {blit_dither(&box2, raw[0]); continue;}
             if (now.branches[q] < 0)
                 {blit_leaf(&box2, &(img_cache[-8*now.branches[q]])); continue;}
             if (now.branches[q] <= 2)
@@ -459,6 +489,7 @@ void run ()
     uint8_t nodes[IMAGECACHE];
     uint8_t fb1_post[LCD_BUFFER_SIZE_BYTES];
     uint8_t fb2_post[LCD_BUFFER_SIZE_BYTES];
+    int i;
     // initialize globals
     img_cache = nodes;
     fb1 = fb1_post;
@@ -466,6 +497,8 @@ void run ()
     strcpy(file_name, "");
     zoom = 1;
     center.x = 256; center.y = 256;
+    for (i=0; i<256; i++)
+        {lut_zoom2[i] = (i&128) + 2*(i&32) + 4*(i&8) + 8*(i&2);}
     refresh_viewport();
     clear_framebuffer();
     flip();
@@ -476,7 +509,7 @@ void run ()
     flip();
     for (;;)
     {
-        delay_us(100000);
+        delay_us(20000);
         while (handle_input())
         {
             refresh_viewport();
