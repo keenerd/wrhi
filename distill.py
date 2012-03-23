@@ -2,7 +2,7 @@
 
 # pil on py3 is buggy, won't open png
 
-import sys
+import os, sys, optparse
 
 from PIL import Image
 from dither import recursive_dither
@@ -194,9 +194,9 @@ def fast_count(pix, size):
             tally[(x, min(x+ival, size[0]), y, min(y+ival, size[1]))] = map(sum, zip(*branches))
     return tally
 
-def main(in_path, out_path):
+def main(in_path, out_path, gamma=2.2):
     global tally  # lazy, fix this
-    img = recursive_dither(in_path)
+    img = recursive_dither(in_path, gamma)
     print "dithering complete"
     img.save('/tmp/dither.png')
     pix = img.load()
@@ -252,8 +252,24 @@ def main(in_path, out_path):
     f.write(''.join(map(chr, binary)))
     f.close()
 
+def parse():
+    parser = optparse.OptionParser(description='Convert high resolution image to a wikireader friendly format.')
+    parser.add_option('-g', '--gamma', dest='gamma',
+           type='float', default=2.2,
+           help='Gamma correction for accurate dithering. Default 2.2')
+    parser.usage = "%prog [options] input_path output_path"
+    options, args = parser.parse_args()
+    return options, args
 
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2])
+    options, args = parse()
+    if len(args) != 2:
+        print 'Input and output path are required arguments.'
+        sys.exit(2)
+    a1 = os.path.split(args[1])[-1].partition('.')
+    if len(a1[0]) > 8 or len(a1[2]) > 3:
+        print 'Output path is not 8.3 friendly.'
+        sys.exit(2)
+    main(args[0], args[1], gamma=options.gamma)
 
 

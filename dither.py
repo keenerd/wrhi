@@ -40,10 +40,10 @@ def dither(img, stego=None):
             quant_error -= corrected_error * quant_error / 16.0
     return img
 
-def recursive_dither(path):
+def recursive_dither(path, g=2.2):
     img1 = Image.open(path)
     img1 = img1.convert('L')
-    gamma = lambda px: (px/255.0) ** 2.2 * 255
+    gamma = lambda px: (px/255.0) ** g * 255
     src = img1.point(gamma)
 
     imgs = [src]

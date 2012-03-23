@@ -2,7 +2,7 @@
 
 # a simpler all in one version that will be ported to C
 
-import random
+import sys, random
 import Tkinter as tk
 
 """
@@ -199,6 +199,7 @@ def main(path):
         pass
     root.mainloop()
 
-main('/tmp/image.wri')
+if __name__ == '__main__':
+    main(sys.argv[1])
 
 
