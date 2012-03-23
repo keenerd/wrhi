@@ -2,6 +2,8 @@
 
 # a simpler all in one version that will be ported to C
 
+# licensed GPLv2
+
 import sys, random
 import Tkinter as tk
 

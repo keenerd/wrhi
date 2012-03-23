@@ -2,6 +2,8 @@
 
 # pil on py3 is buggy, won't open png
 
+# licensed GPLv2
+
 import os, sys, optparse
 
 from PIL import Image

@@ -2,6 +2,8 @@
 
 # PIL seems to clip floating errors when dithering
 
+# licensed GPLv2
+
 from PIL import Image
 from itertools import *
 

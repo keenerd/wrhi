@@ -1,6 +1,8 @@
 // QUAd Fractal Format
 // for viewing WikiReader Huge Images
 
+// licensed GPLv2
+
 #include <stdio.h>
 #include <string.h>
 
