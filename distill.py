@@ -2,6 +2,8 @@
 
 # pil on py3 is buggy, won't open png
 
+import sys
+
 from PIL import Image
 from dither import recursive_dither
 from itertools import *
@@ -36,6 +38,8 @@ Discard branches that are outside viewport
 If you are clever, panning viewport is only new pixels on edge
 
 """
+
+tally = {}
 
 class Node(object):
     def __init__(self, parent, xr, yr):
@@ -92,6 +96,8 @@ def dither16(xr, yr):
     "generate sample points"
     xi = (xr[1] - xr[0])//4
     yi = (yr[1] - yr[0])//4
+    xi = max(1, xi)
+    yi = max(1, yi)
     return product(range(yr[0], yr[1], yi), range(xr[0], xr[1], xi))
 
 def block_type(blocks, child):
@@ -144,7 +150,7 @@ def chop_by_quad(node):
             Node(node, (x2,x3), (y2,y3)),
             Node(node, (x1,x2), (y2,y3))]
 
-def literal(node):
+def literal(node, pix):
     "return 64 bit int, black is 1"
     if node.size != 3:
         raise
@@ -188,60 +194,66 @@ def fast_count(pix, size):
             tally[(x, min(x+ival, size[0]), y, min(y+ival, size[1]))] = map(sum, zip(*branches))
     return tally
 
-#img = Image.open('lena.png')
-img = recursive_dither('lena-gray.png')
-print "dithering complete"
-img.save('/tmp/dither.png')
-pix = img.load()
-tally = fast_count(pix, img.size)
-root_height = int_log2(max(img.size))
-#print root_height
+def main(in_path, out_path):
+    global tally  # lazy, fix this
+    img = recursive_dither(in_path)
+    print "dithering complete"
+    img.save('/tmp/dither.png')
+    pix = img.load()
+    tally = fast_count(pix, img.size)
+    root_height = int_log2(max(img.size))
+    #print root_height
 
-blocks = ['#!quafit\n', '#v0000\n']
-root = Node(pix, (0,img.size[0]), (0,img.size[1]))
-root.root = True
-blocks.append(root)
-#print blocks
+    blocks = ['#!quafit\n', '#v0000\n']
+    root = Node(pix, (0,img.size[0]), (0,img.size[1]))
+    root.root = True
+    blocks.append(root)
+    #print blocks
 
-todo = [2]  # blocks to quadify
+    todo = [2]  # blocks to quadify
 
-while todo:
-    now = todo.pop(0)
-    new_quads = chop_by_quad(blocks[now])
-    pre_length = len(blocks)
-    added_blocks = []
-    for i,node in enumerate(new_quads):
-        if node.out_of_bounds:
-            blocks[now].children[i] = 'outside'
-            continue
-        if node.b_count == 0:
-            blocks[now].children[i] = 'white'
-            continue
-        if node.w_count == 0:
-            blocks[now].children[i] = 'black'
-            continue
-        blocks.append(None)
-        address = len(blocks) - 1
-        if node.size > 3:
-            blocks[address] = node
-            todo.append(address)
-            added_blocks.append(address)
-        if node.size == 3:
-            blocks[address] = literal(node)
-        blocks[now].children[i] = address
-   # print blocks[now]
-   # for i in added_blocks:
-   #     print "   ", blocks[i].xr, blocks[i].yr
+    while todo:
+        now = todo.pop(0)
+        new_quads = chop_by_quad(blocks[now])
+        pre_length = len(blocks)
+        added_blocks = []
+        for i,node in enumerate(new_quads):
+            if node.out_of_bounds:
+                blocks[now].children[i] = 'outside'
+                continue
+            if node.b_count == 0:
+                blocks[now].children[i] = 'white'
+                continue
+            if node.w_count == 0:
+                blocks[now].children[i] = 'black'
+                continue
+            blocks.append(None)
+            address = len(blocks) - 1
+            if node.size > 3:
+                blocks[address] = node
+                todo.append(address)
+                added_blocks.append(address)
+            if node.size == 3:
+                blocks[address] = literal(node, pix)
+            blocks[now].children[i] = address
+        # print blocks[now]
+        # for i in added_blocks:
+        #     print "   ", blocks[i].xr, blocks[i].yr
 
-#print
-#print 'block count', len(blocks)
+    #print
+    #print 'block count', len(blocks)
 
-binary = []
-[binary.extend(print_bin(blocks, b)) for b in blocks]
-assert all(0<=b<=255 for b in binary)
+    binary = []
+    [binary.extend(print_bin(blocks, b)) for b in blocks]
+    assert all(0<=b<=255 for b in binary)
 
-#print len(binary)
-f = open('/tmp/image.wri', 'wb')
-f.write(''.join(map(chr, binary)))
-f.close()
+    #print len(binary)
+    f = open(out_path, 'wb')
+    f.write(''.join(map(chr, binary)))
+    f.close()
+
+
+if __name__ == '__main__':
+    main(sys.argv[1], sys.argv[2])
+
 

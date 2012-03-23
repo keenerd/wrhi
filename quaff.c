@@ -7,7 +7,7 @@
 #include <grifo.h>
 
 #define STACKDEPTH 20
-#define IMAGECACHE 4000000
+#define IMAGECACHE 10000000
 
 /*
 quad tree with 8 bytes nodes/leaves

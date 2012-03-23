@@ -96,9 +96,10 @@ def quad_chop(xr, yr, quad):
 def branch_of(struct, address):
     return any(address in (n, -n) for n in struct.branches)
 
-def blit_box(screen_map, xr, yr):
+def blit_box(screen_map, bbox, xr, yr):
     xy0 = screen_map(xr[0], yr[0])
     xy1 = screen_map(xr[1], yr[1])
+    #xy1 = min(xy1[0], bbox[0]), min(xy1[1], bbox[1])
     box(*(xy0 + xy1))
 
 def blit_leaf(screen_map, xr, yr, zoom, raw):
@@ -162,7 +163,7 @@ def render(nodes, bbox, center, zoom):
         for q in range(4):
             xrq,yrq = quad_chop(xr, yr, q)
             if branches[q] == 2:
-                blit_box(screen_map, xrq, yrq)
+                blit_box(screen_map, bbox, xrq, yrq)
                 continue
             if branches[q] < 0:
                 blit_leaf(screen_map, xrq, yrq, zoom, nodes[-8*branches[q]:]) 
@@ -189,8 +190,8 @@ def main(path):
     canvas.tk_focusFollowsMouse()
     center = random.randint(0,500), random.randint(0,500)
     zoom = random.choice((1,1,1,1,2,2,4,8,16,32))
-    center = (256, 256)
-    zoom = 4
+    center = (266, 256)
+    zoom = 1
     print center, zoom
     try:
         render(nodes, (240,208), center, zoom)
